@@ -1,6 +1,7 @@
 package com.snapreel.app.player
 
 import android.content.Context
+import android.net.Uri
 import androidx.annotation.OptIn
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
@@ -20,21 +21,27 @@ class ReelPlayerManager @Inject constructor(
     @ApplicationContext private val context: Context,
     private val appPreferences: AppPreferences
 ) {
-    private var _player: ExoPlayer? = null
+    private val playerPool = mutableListOf<ExoPlayer>()
+    private val uriToPlayerMap = mutableMapOf<String, ExoPlayer>()
+    private var currentPlayerUri: String? = null
 
     val player: ExoPlayer
-        get() {
-            if (_player == null) {
-                _player = createPlayer()
-            }
-            return _player!!
+        get() = getActivePlayer()
+
+    init {
+        for (i in 0 until 3) {
+            playerPool.add(createPlayer())
         }
+    }
+
+    private fun getActivePlayer(): ExoPlayer {
+        return currentPlayerUri?.let { uriToPlayerMap[it] } ?: playerPool.first()
+    }
 
     @OptIn(UnstableApi::class)
     private fun createPlayer(): ExoPlayer {
         val loopVideos = runBlocking { appPreferences.settings.first().loopVideos }
         
-        // Fast buffering optimized for local files/reels
         val loadControl = DefaultLoadControl.Builder()
             .setBufferDurationsMs(
                 2000,   // Min buffer: 2s
@@ -53,59 +60,115 @@ class ReelPlayerManager @Inject constructor(
             .build()
             .apply {
                 repeatMode = if (loopVideos) Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_OFF
-                playWhenReady = true
+                playWhenReady = false
                 volume = 1f
                 videoScalingMode = androidx.media3.common.C.VIDEO_SCALING_MODE_SCALE_TO_FIT_WITH_CROPPING
             }
     }
 
-    fun playUri(uri: android.net.Uri) {
+    fun getPlayerForUri(uri: Uri): ExoPlayer {
+        return uriToPlayerMap[uri.toString()] ?: getActivePlayer()
+    }
+
+    fun onPageChanged(currentUri: Uri?, nextUri: Uri?, prevUri: Uri?, playCurrent: Boolean = true) {
+        val currentUriStr = currentUri?.toString()
+        val nextUriStr = nextUri?.toString()
+        val prevUriStr = prevUri?.toString()
+
+        currentPlayerUri = currentUriStr
+
+        val wantedUris = listOfNotNull(currentUriStr, nextUriStr, prevUriStr)
+
+        val unusedPlayers = playerPool.filter { player ->
+            val uriForPlayer = uriToPlayerMap.entries.find { it.value == player }?.key
+            uriForPlayer !in wantedUris
+        }.toMutableList()
+
+        for (uriStr in wantedUris) {
+            if (!uriToPlayerMap.containsKey(uriStr)) {
+                if (unusedPlayers.isNotEmpty()) {
+                    val playerToReuse = unusedPlayers.removeAt(0)
+                    val oldEntry = uriToPlayerMap.entries.find { it.value == playerToReuse }
+                    if (oldEntry != null) {
+                        uriToPlayerMap.remove(oldEntry.key)
+                    }
+                    uriToPlayerMap[uriStr] = playerToReuse
+                    prepareUri(Uri.parse(uriStr), playerToReuse)
+                }
+            }
+        }
+
+        for ((uriStr, player) in uriToPlayerMap) {
+            if (uriStr != currentUriStr) {
+                player.playWhenReady = false
+                if (player.playbackState == Player.STATE_ENDED) {
+                     player.seekTo(0)
+                }
+            }
+        }
+        
+        currentUriStr?.let {
+            val player = uriToPlayerMap[it]
+            if (playCurrent) {
+                if (player?.playbackState == Player.STATE_ENDED) {
+                    player.seekTo(0)
+                }
+                player?.playWhenReady = true
+            } else {
+                player?.playWhenReady = false
+            }
+        }
+    }
+
+    private fun prepareUri(uri: Uri, playerToUse: ExoPlayer) {
         val mediaItem = MediaItem.fromUri(uri)
-        player.apply {
+        playerToUse.apply {
+            playWhenReady = false
             setMediaItem(mediaItem)
             prepare()
-            playWhenReady = true
         }
     }
 
     fun pause() {
-        _player?.playWhenReady = false
+        getActivePlayer().playWhenReady = false
     }
 
     fun resume() {
-        if (_player?.playbackState == Player.STATE_ENDED) {
-            _player?.seekTo(0)
+        val active = getActivePlayer()
+        if (active.playbackState == Player.STATE_ENDED) {
+            active.seekTo(0)
         }
-        _player?.playWhenReady = true
+        active.playWhenReady = true
     }
 
-
     fun seekForward(millis: Long = 10_000) {
-        _player?.let {
-            val newPos = (it.currentPosition + millis).coerceAtMost(it.duration)
-            it.seekTo(newPos)
-        }
+        val active = getActivePlayer()
+        val newPos = (active.currentPosition + millis).coerceAtMost(active.duration)
+        active.seekTo(newPos)
     }
 
     fun seekBackward(millis: Long = 10_000) {
-        _player?.let {
-            val newPos = (it.currentPosition - millis).coerceAtLeast(0)
-            it.seekTo(newPos)
-        }
+        val active = getActivePlayer()
+        val newPos = (active.currentPosition - millis).coerceAtLeast(0)
+        active.seekTo(newPos)
     }
 
     fun setMuted(muted: Boolean) {
-        _player?.volume = if (muted) 0f else 1f
+        val vol = if (muted) 0f else 1f
+        playerPool.forEach { it.volume = vol }
     }
 
-    fun isMuted(): Boolean = (_player?.volume ?: 1f) == 0f
+    fun isMuted(): Boolean = (getActivePlayer().volume) == 0f
 
     fun updateLoopMode(loop: Boolean) {
-        _player?.repeatMode = if (loop) Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_OFF
+        val mode = if (loop) Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_OFF
+        playerPool.forEach { it.repeatMode = mode }
     }
 
     fun release() {
-        _player?.release()
-        _player = null
+        playerPool.forEach { it.release() }
+        playerPool.clear()
+        uriToPlayerMap.clear()
+        currentPlayerUri = null
     }
 }

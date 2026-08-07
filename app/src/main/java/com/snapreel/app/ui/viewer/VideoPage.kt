@@ -81,7 +81,7 @@ fun VideoPage(
     LaunchedEffect(isCurrentPage, isDraggingSlider) {
         if (isCurrentPage && !isDraggingSlider) {
             while (true) {
-                val p = playerManager.player
+                val p = playerManager.getPlayerForUri(mediaItem.uri)
                 currentTime.longValue = p.currentPosition
                 totalTime.longValue = p.duration.coerceAtLeast(0)
                 if (totalTime.longValue > 0) {
@@ -130,7 +130,7 @@ fun VideoPage(
                     }
                 },
                 update = { playerView ->
-                    playerView.player = playerManager.player
+                    playerView.player = playerManager.getPlayerForUri(mediaItem.uri)
                 },
                 modifier = Modifier.fillMaxSize()
             )

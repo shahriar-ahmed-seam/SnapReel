@@ -73,12 +73,16 @@ class ReelsViewerViewModel @Inject constructor(
         _uiState.update { it.copy(currentIndex = index) }
 
         val item = items[index]
+        val currentUri = item.uri
+        val nextUri = if (index + 1 < items.size) items[index + 1].uri else null
+        val prevUri = if (index - 1 >= 0) items[index - 1].uri else null
+
         if (item.isVideo) {
-            playerManager.playUri(item.uri)
+            playerManager.onPageChanged(currentUri, nextUri, prevUri, playCurrent = true)
             // Always start in State A (Immersive): playing, controls hidden
             _uiState.update { it.copy(isPlaying = true, showControls = false) }
         } else {
-            playerManager.pause()
+            playerManager.onPageChanged(currentUri, nextUri, prevUri, playCurrent = false)
             // Images start with controls hidden (immersive)
             _uiState.update { it.copy(isPlaying = false, showControls = false) }
         }

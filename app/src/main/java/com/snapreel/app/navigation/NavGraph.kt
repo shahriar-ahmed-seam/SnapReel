@@ -57,11 +57,17 @@ fun SnapReelNavGraph() {
             val folderUri = backStackEntry.arguments?.getString("folderUri")?.let {
                 Uri.parse(it)
             }
+            // Read the saved index if we just returned from Viewer
+            val lastViewedIndex = backStackEntry.savedStateHandle.get<Int>("lastViewedIndex")
+
             if (folderUri != null) {
                 FolderMediaGridScreen(
                     folderUri = folderUri,
+                    returnedIndex = lastViewedIndex,
                     onBack = { navController.popBackStack() },
                     onMediaClick = { index ->
+                        // Clear the returned index when moving forward
+                        backStackEntry.savedStateHandle.remove<Int>("lastViewedIndex")
                         navController.navigate(Routes.viewer(folderUri.toString(), index))
                     }
                 )
@@ -83,7 +89,10 @@ fun SnapReelNavGraph() {
                 ReelsViewerScreen(
                     folderUri = folderUri,
                     startIndex = startIndex,
-                    onBack = { navController.popBackStack() }
+                    onBack = { currentIndex -> 
+                        navController.previousBackStackEntry?.savedStateHandle?.set("lastViewedIndex", currentIndex)
+                        navController.popBackStack() 
+                    }
                 )
             }
         }

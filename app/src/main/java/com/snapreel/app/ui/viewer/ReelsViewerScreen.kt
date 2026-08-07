@@ -32,7 +32,7 @@ import kotlinx.coroutines.launch
 fun ReelsViewerScreen(
     folderUri: Uri,
     startIndex: Int = 0,
-    onBack: () -> Unit,
+    onBack: (Int) -> Unit,
     viewModel: ReelsViewerViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -71,7 +71,7 @@ fun ReelsViewerScreen(
         } else if (uiState.error != null) {
             ErrorContent(
                 error = uiState.error ?: "Unknown error",
-                onBack = onBack
+                onBack = { onBack(uiState.currentIndex) }
             )
         } else if (uiState.mediaItems.isNotEmpty()) {
             ReelsContent(
@@ -94,7 +94,7 @@ fun ReelsViewerScreen(
                 .align(Alignment.TopStart)
         ) {
             IconButton(
-                onClick = onBack
+                onClick = { onBack(uiState.currentIndex) }
             ) {
                 Icon(
                     imageVector = Icons.AutoMirrored.Filled.ArrowBack,

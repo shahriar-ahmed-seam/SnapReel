@@ -18,7 +18,15 @@ class MediaRepository @Inject constructor(
     @ApplicationContext private val context: Context,
     private val appPreferences: AppPreferences
 ) {
-    suspend fun scanFolder(treeUri: Uri): List<MediaItem> = withContext(Dispatchers.IO) {
+    private val mediaCache = java.util.concurrent.ConcurrentHashMap<String, List<MediaItem>>()
+
+    suspend fun scanFolder(treeUri: Uri, forceRefresh: Boolean = false): List<MediaItem> = withContext(Dispatchers.IO) {
+        val uriString = treeUri.toString()
+        
+        if (!forceRefresh && mediaCache.containsKey(uriString)) {
+            return@withContext mediaCache[uriString]!!
+        }
+
         val items = mutableListOf<MediaItem>()
         val docUri = DocumentsContract.buildDocumentUriUsingTree(
             treeUri,
@@ -28,8 +36,10 @@ class MediaRepository @Inject constructor(
 
         val settings = appPreferences.settings.first()
         val sorted = sortMedia(items, settings.sortOrder)
-
-        if (settings.shuffleMedia) sorted.shuffled() else sorted
+        val result = if (settings.shuffleMedia) sorted.shuffled() else sorted
+        
+        mediaCache[uriString] = result
+        result
     }
 
     private fun scanDocumentTree(treeUri: Uri, docUri: Uri, items: MutableList<MediaItem>) {

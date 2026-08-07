@@ -24,18 +24,28 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import coil3.compose.AsyncImage
 import com.snapreel.app.ui.theme.*
 
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun FolderMediaGridScreen(
     folderUri: Uri,
+    returnedIndex: Int? = null,
     onBack: () -> Unit,
     onMediaClick: (Int) -> Unit,
     viewModel: ReelsViewerViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val gridState = rememberLazyGridState()
 
     LaunchedEffect(folderUri) {
         viewModel.loadMedia(folderUri)
+    }
+
+    LaunchedEffect(returnedIndex, uiState.mediaItems.size) {
+        if (returnedIndex != null && returnedIndex >= 0 && returnedIndex < uiState.mediaItems.size) {
+            gridState.scrollToItem(returnedIndex)
+        }
     }
 
     Scaffold(
@@ -72,6 +82,7 @@ fun FolderMediaGridScreen(
         } else if (uiState.mediaItems.isNotEmpty()) {
             LazyVerticalGrid(
                 columns = GridCells.Fixed(3),
+                state = gridState,
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(paddingValues),
