@@ -73,9 +73,9 @@ class ReelsViewerViewModel @Inject constructor(
         _uiState.update { it.copy(currentIndex = index) }
 
         val item = items[index]
-        val currentUri = item.uri
-        val nextUri = if (index + 1 < items.size) items[index + 1].uri else null
-        val prevUri = if (index - 1 >= 0) items[index - 1].uri else null
+        val currentUri = if (item.isVideo) item.uri else null
+        val nextUri = if (index + 1 < items.size && items[index + 1].isVideo) items[index + 1].uri else null
+        val prevUri = if (index - 1 >= 0 && items[index - 1].isVideo) items[index - 1].uri else null
 
         if (item.isVideo) {
             playerManager.onPageChanged(currentUri, nextUri, prevUri, playCurrent = true)

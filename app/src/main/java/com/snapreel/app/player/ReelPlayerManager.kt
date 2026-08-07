@@ -14,9 +14,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import javax.inject.Inject
-import javax.inject.Singleton
 
-@Singleton
 class ReelPlayerManager @Inject constructor(
     @ApplicationContext private val context: Context,
     private val appPreferences: AppPreferences
@@ -24,13 +22,24 @@ class ReelPlayerManager @Inject constructor(
     private val playerPool = mutableListOf<ExoPlayer>()
     private val uriToPlayerMap = mutableMapOf<String, ExoPlayer>()
     private var currentPlayerUri: String? = null
+    
+    private var isInitialized = false
+    private var currentLoopMode = false
+    private var isMuted = false
 
     val player: ExoPlayer
-        get() = getActivePlayer()
+        get() {
+            ensureInitialized()
+            return getActivePlayer()
+        }
 
-    init {
-        for (i in 0 until 3) {
-            playerPool.add(createPlayer())
+    private fun ensureInitialized() {
+        if (!isInitialized) {
+            currentLoopMode = runBlocking { appPreferences.settings.first().loopVideos }
+            for (i in 0 until 3) {
+                playerPool.add(createPlayer())
+            }
+            isInitialized = true
         }
     }
 
@@ -40,8 +49,6 @@ class ReelPlayerManager @Inject constructor(
 
     @OptIn(UnstableApi::class)
     private fun createPlayer(): ExoPlayer {
-        val loopVideos = runBlocking { appPreferences.settings.first().loopVideos }
-        
         val loadControl = DefaultLoadControl.Builder()
             .setBufferDurationsMs(
                 2000,   // Min buffer: 2s
@@ -59,18 +66,20 @@ class ReelPlayerManager @Inject constructor(
             .setRenderersFactory(renderersFactory)
             .build()
             .apply {
-                repeatMode = if (loopVideos) Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_OFF
+                repeatMode = if (currentLoopMode) Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_OFF
                 playWhenReady = false
-                volume = 1f
+                volume = if (isMuted) 0f else 1f
                 videoScalingMode = androidx.media3.common.C.VIDEO_SCALING_MODE_SCALE_TO_FIT_WITH_CROPPING
             }
     }
 
     fun getPlayerForUri(uri: Uri): ExoPlayer {
+        ensureInitialized()
         return uriToPlayerMap[uri.toString()] ?: getActivePlayer()
     }
 
     fun onPageChanged(currentUri: Uri?, nextUri: Uri?, prevUri: Uri?, playCurrent: Boolean = true) {
+        ensureInitialized()
         val currentUriStr = currentUri?.toString()
         val nextUriStr = nextUri?.toString()
         val prevUriStr = prevUri?.toString()
@@ -130,10 +139,11 @@ class ReelPlayerManager @Inject constructor(
     }
 
     fun pause() {
-        getActivePlayer().playWhenReady = false
+        if (isInitialized) getActivePlayer().playWhenReady = false
     }
 
     fun resume() {
+        if (!isInitialized) return
         val active = getActivePlayer()
         if (active.playbackState == Player.STATE_ENDED) {
             active.seekTo(0)
@@ -142,33 +152,44 @@ class ReelPlayerManager @Inject constructor(
     }
 
     fun seekForward(millis: Long = 10_000) {
+        if (!isInitialized) return
         val active = getActivePlayer()
         val newPos = (active.currentPosition + millis).coerceAtMost(active.duration)
         active.seekTo(newPos)
     }
 
     fun seekBackward(millis: Long = 10_000) {
+        if (!isInitialized) return
         val active = getActivePlayer()
         val newPos = (active.currentPosition - millis).coerceAtLeast(0)
         active.seekTo(newPos)
     }
 
     fun setMuted(muted: Boolean) {
+        isMuted = muted
         val vol = if (muted) 0f else 1f
-        playerPool.forEach { it.volume = vol }
+        if (isInitialized) {
+            playerPool.forEach { it.volume = vol }
+        }
     }
 
-    fun isMuted(): Boolean = (getActivePlayer().volume) == 0f
+    fun isMuted(): Boolean = isMuted
 
     fun updateLoopMode(loop: Boolean) {
+        currentLoopMode = loop
         val mode = if (loop) Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_OFF
-        playerPool.forEach { it.repeatMode = mode }
+        if (isInitialized) {
+            playerPool.forEach { it.repeatMode = mode }
+        }
     }
 
     fun release() {
-        playerPool.forEach { it.release() }
-        playerPool.clear()
-        uriToPlayerMap.clear()
-        currentPlayerUri = null
+        if (isInitialized) {
+            playerPool.forEach { it.release() }
+            playerPool.clear()
+            uriToPlayerMap.clear()
+            currentPlayerUri = null
+            isInitialized = false
+        }
     }
 }
