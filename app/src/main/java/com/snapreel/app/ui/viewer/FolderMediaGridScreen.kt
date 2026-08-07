@@ -96,15 +96,12 @@ fun FolderMediaGridScreen(
                             .background(Color.DarkGray)
                             .clickable { onMediaClick(index) }
                     ) {
-                        AsyncImage(
-                            model = item.uri,
-                            contentDescription = item.name,
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier.fillMaxSize()
-                        )
-                        
-                        // Video indicator
                         if (item.isVideo) {
+                            VideoThumbnail(
+                                uri = item.uri,
+                                contentDescription = item.name,
+                                modifier = Modifier.fillMaxSize()
+                            )
                             Icon(
                                 imageVector = Icons.Filled.PlayArrow,
                                 contentDescription = null,
@@ -113,6 +110,13 @@ fun FolderMediaGridScreen(
                                     .align(Alignment.TopEnd)
                                     .padding(4.dp)
                                     .size(20.dp)
+                            )
+                        } else {
+                            AsyncImage(
+                                model = item.uri,
+                                contentDescription = item.name,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize()
                             )
                         }
                     }

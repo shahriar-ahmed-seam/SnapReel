@@ -117,24 +117,22 @@ fun VideoPage(
             }
     ) {
         // Video Player
-        if (isCurrentPage) {
-            AndroidView(
-                factory = { context ->
-                    PlayerView(context).apply {
-                        useController = false
-                        layoutParams = FrameLayout.LayoutParams(
-                            ViewGroup.LayoutParams.MATCH_PARENT,
-                            ViewGroup.LayoutParams.MATCH_PARENT
-                        )
-                        setKeepContentOnPlayerReset(true)
-                    }
-                },
-                update = { playerView ->
-                    playerView.player = playerManager.getPlayerForUri(mediaItem.uri)
-                },
-                modifier = Modifier.fillMaxSize()
-            )
-        }
+        AndroidView(
+            factory = { context ->
+                PlayerView(context).apply {
+                    useController = false
+                    layoutParams = FrameLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.MATCH_PARENT
+                    )
+                    setKeepContentOnPlayerReset(true)
+                }
+            },
+            update = { playerView ->
+                playerView.player = playerManager.getPlayerForUri(mediaItem.uri)
+            },
+            modifier = Modifier.fillMaxSize()
+        )
 
         // Center play icon — visible when video is paused (State C)
         AnimatedVisibility(

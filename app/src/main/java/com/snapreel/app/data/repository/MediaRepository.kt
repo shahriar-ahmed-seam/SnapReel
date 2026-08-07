@@ -20,6 +20,10 @@ class MediaRepository @Inject constructor(
 ) {
     private val mediaCache = java.util.concurrent.ConcurrentHashMap<String, List<MediaItem>>()
 
+    fun getCachedMedia(treeUri: Uri): List<MediaItem>? {
+        return mediaCache[treeUri.toString()]
+    }
+
     suspend fun scanFolder(treeUri: Uri, forceRefresh: Boolean = false): List<MediaItem> = withContext(Dispatchers.IO) {
         val uriString = treeUri.toString()
         

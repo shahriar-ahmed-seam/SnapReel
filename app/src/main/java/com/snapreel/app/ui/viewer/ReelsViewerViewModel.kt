@@ -45,6 +45,15 @@ class ReelsViewerViewModel @Inject constructor(
 
     fun loadMedia(folderUri: Uri, startIndex: Int = 0) {
         viewModelScope.launch {
+            val cached = mediaRepository.getCachedMedia(folderUri)
+            if (cached != null && cached.isNotEmpty()) {
+                val safeIndex = startIndex.coerceIn(0, cached.size - 1)
+                _uiState.update {
+                    it.copy(mediaItems = cached, isLoading = false, currentIndex = safeIndex, error = null)
+                }
+                return@launch
+            }
+
             _uiState.update { it.copy(isLoading = true, error = null) }
             try {
                 val items = mediaRepository.scanFolder(folderUri)

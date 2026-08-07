@@ -173,9 +173,6 @@ private fun ReelsContent(
     LaunchedEffect(pagerState.settledPage) {
         viewModel.onPageSettled(pagerState.settledPage)
         viewModel.saveLastViewedIndex(folderUri, pagerState.settledPage)
-        if (uiState.settings.hapticFeedback) {
-            view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
-        }
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
