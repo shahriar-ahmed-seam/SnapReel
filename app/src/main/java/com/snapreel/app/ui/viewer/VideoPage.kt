@@ -75,13 +75,19 @@ fun VideoPage(
     // Smart Aspect Ratio & Manual Quick-Toggle State
     var isLandscape by remember(mediaItem.uri) { mutableStateOf(false) }
     var manualZoomOverride by remember(mediaItem.uri) { mutableStateOf<Boolean?>(null) }
+    var isFirstFrameRendered by remember(mediaItem.uri) { mutableStateOf(false) }
 
-    // Listen to video resolution from ExoPlayer
+    // Listen to video resolution and first frame rendering from ExoPlayer
     DisposableEffect(isCurrentPage, playerManager.player) {
         val listener = object : androidx.media3.common.Player.Listener {
             override fun onVideoSizeChanged(videoSize: androidx.media3.common.VideoSize) {
                 if (videoSize.width > 0 && videoSize.height > 0) {
                     isLandscape = videoSize.width > videoSize.height
+                }
+            }
+            override fun onRenderedFirstFrame() {
+                if (isCurrentPage) {
+                    isFirstFrameRendered = true
                 }
             }
         }
@@ -170,17 +176,6 @@ fun VideoPage(
                     .fillMaxSize()
                     .background(Color.Black.copy(alpha = 0.5f))
             )
-        } else {
-            // Instant Preview Thumbnail Background (Zero black flicker while swiping)
-            coil3.compose.AsyncImage(
-                model = coil3.request.ImageRequest.Builder(androidx.compose.ui.platform.LocalContext.current)
-                    .data(mediaItem.uri)
-                    .crossfade(false)
-                    .build(),
-                contentDescription = mediaItem.name,
-                contentScale = androidx.compose.ui.layout.ContentScale.Crop,
-                modifier = Modifier.fillMaxSize()
-            )
         }
 
         // 2. Hardware-Accelerated Video Player
@@ -210,6 +205,23 @@ fun VideoPage(
                 onRelease = { playerView ->
                     playerView.player = null
                 },
+                modifier = Modifier.fillMaxSize()
+            )
+        }
+
+        // 3. Instant Preview Thumbnail (Zero Black Screen: Stays visible until ExoPlayer renders first frame)
+        AnimatedVisibility(
+            visible = !isFirstFrameRendered,
+            enter = fadeIn(tween(0)),
+            exit = fadeOut(tween(200))
+        ) {
+            coil3.compose.AsyncImage(
+                model = coil3.request.ImageRequest.Builder(androidx.compose.ui.platform.LocalContext.current)
+                    .data(mediaItem.uri)
+                    .crossfade(false)
+                    .build(),
+                contentDescription = mediaItem.name,
+                contentScale = if (shouldZoom) androidx.compose.ui.layout.ContentScale.Crop else androidx.compose.ui.layout.ContentScale.Fit,
                 modifier = Modifier.fillMaxSize()
             )
         }

@@ -29,7 +29,7 @@ class ReelPlayerManager @Inject constructor(
     private var currentUri: Uri? = null
 
     private var isInitialized = false
-    private var currentLoopMode = false
+    private var currentLoopMode = true
     private var isMuted = false
 
     val player: ExoPlayer
@@ -40,7 +40,6 @@ class ReelPlayerManager @Inject constructor(
 
     private fun ensureInitialized() {
         if (!isInitialized || exoPlayer == null) {
-            currentLoopMode = runBlocking { appPreferences.settings.first().loopVideos }
             exoPlayer = createPlayer()
             isInitialized = true
         }
