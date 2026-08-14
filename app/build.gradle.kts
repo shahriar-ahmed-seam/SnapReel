@@ -14,8 +14,8 @@ android {
         applicationId = "com.snapreel.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = 6
+        versionName = "1.1.5"
     }
 
     buildTypes {
@@ -41,6 +41,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 

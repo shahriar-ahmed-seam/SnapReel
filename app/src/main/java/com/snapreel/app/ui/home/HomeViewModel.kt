@@ -5,6 +5,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.snapreel.app.data.preferences.AppPreferences
 import com.snapreel.app.data.repository.MediaRepository
+import com.snapreel.app.util.AppUpdateInfo
+import com.snapreel.app.util.UpdateManager
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
@@ -19,13 +21,20 @@ data class RecentFolder(
 data class HomeUiState(
     val recentFolders: List<RecentFolder> = emptyList(),
     val isLoading: Boolean = false,
-    val scanningFolderName: String? = null
+    val scanningFolderName: String? = null,
+    val availableUpdate: AppUpdateInfo? = null,
+    val isDownloadingUpdate: Boolean = false,
+    val updateDownloadProgress: Float = 0f,
+    val downloadedBytes: Long = 0L,
+    val totalBytes: Long = 0L,
+    val updateError: String? = null
 )
 
 @HiltViewModel
 class HomeViewModel @Inject constructor(
     private val appPreferences: AppPreferences,
-    private val mediaRepository: MediaRepository
+    private val mediaRepository: MediaRepository,
+    private val updateManager: UpdateManager
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(HomeUiState())
@@ -42,6 +51,46 @@ class HomeViewModel @Inject constructor(
                 _uiState.update { it.copy(recentFolders = folders) }
             }
         }
+
+        checkForUpdates()
+    }
+
+    fun checkForUpdates() {
+        viewModelScope.launch {
+            val update = updateManager.checkForUpdates()
+            if (update != null) {
+                _uiState.update { it.copy(availableUpdate = update, updateError = null) }
+            }
+        }
+    }
+
+    fun startUpdate() {
+        val update = _uiState.value.availableUpdate ?: return
+        _uiState.update { it.copy(isDownloadingUpdate = true, updateError = null, updateDownloadProgress = 0f) }
+        viewModelScope.launch {
+            updateManager.downloadAndInstallApk(
+                downloadUrl = update.downloadUrl,
+                onProgress = { progress, downloaded, total ->
+                    _uiState.update {
+                        it.copy(
+                            updateDownloadProgress = progress,
+                            downloadedBytes = downloaded,
+                            totalBytes = total
+                        )
+                    }
+                },
+                onComplete = {
+                    _uiState.update { it.copy(isDownloadingUpdate = false, availableUpdate = null) }
+                },
+                onError = { errorMsg ->
+                    _uiState.update { it.copy(isDownloadingUpdate = false, updateError = errorMsg) }
+                }
+            )
+        }
+    }
+
+    fun dismissUpdateDialog() {
+        _uiState.update { it.copy(availableUpdate = null, updateError = null) }
     }
 
     fun onFolderPicked(treeUri: Uri) {

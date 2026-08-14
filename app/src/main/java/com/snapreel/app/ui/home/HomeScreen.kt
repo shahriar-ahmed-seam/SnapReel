@@ -234,6 +234,20 @@ fun HomeScreen(
                 }
             }
         }
+
+        // In-App Auto-Update Dialog
+        if (uiState.availableUpdate != null) {
+            com.snapreel.app.ui.common.UpdateDialog(
+                updateInfo = uiState.availableUpdate!!,
+                isDownloading = uiState.isDownloadingUpdate,
+                downloadProgress = uiState.updateDownloadProgress,
+                downloadedBytes = uiState.downloadedBytes,
+                totalBytes = uiState.totalBytes,
+                error = uiState.updateError,
+                onUpdateClick = { viewModel.startUpdate() },
+                onDismiss = { viewModel.dismissUpdateDialog() }
+            )
+        }
     }
 }
 

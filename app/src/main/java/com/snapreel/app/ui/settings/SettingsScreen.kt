@@ -31,6 +31,7 @@ fun SettingsScreen(
     viewModel: SettingsViewModel = hiltViewModel()
 ) {
     val settings by viewModel.settings.collectAsState()
+    val updateState by viewModel.updateState.collectAsState()
     var showSortDialog by remember { mutableStateOf(false) }
     var showDelayDialog by remember { mutableStateOf(false) }
 
@@ -152,6 +153,56 @@ fun SettingsScreen(
                 )
             }
 
+            Spacer(modifier = Modifier.height(20.dp))
+
+            // Updates Section
+            SettingsSectionHeader("Updates & About")
+
+            SettingsCard {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable(enabled = !updateState.isChecking) { viewModel.checkForUpdates() }
+                        .padding(horizontal = 16.dp, vertical = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.SystemUpdate,
+                        contentDescription = null,
+                        tint = Violet400,
+                        modifier = Modifier.size(22.dp)
+                    )
+                    Spacer(modifier = Modifier.width(14.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Check for Updates",
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = TextPrimary
+                        )
+                        Text(
+                            text = if (updateState.isUpToDate) "You're on the latest version (v${com.snapreel.app.BuildConfig.VERSION_NAME})" 
+                                   else "Installed: v${com.snapreel.app.BuildConfig.VERSION_NAME}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (updateState.isUpToDate) Violet400 else TextMuted
+                        )
+                    }
+                    if (updateState.isChecking) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(20.dp),
+                            color = Violet500,
+                            strokeWidth = 2.dp
+                        )
+                    } else {
+                        Icon(
+                            imageVector = Icons.Filled.ChevronRight,
+                            contentDescription = null,
+                            tint = TextDisabled,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                }
+            }
+
             Spacer(modifier = Modifier.height(32.dp))
 
             // App info
@@ -167,7 +218,7 @@ fun SettingsScreen(
                         fontSize = 16.sp
                     )
                     Text(
-                        text = "v1.0.0",
+                        text = "v${com.snapreel.app.BuildConfig.VERSION_NAME}",
                         color = TextDisabled,
                         fontSize = 12.sp
                     )
@@ -175,6 +226,20 @@ fun SettingsScreen(
             }
 
             Spacer(modifier = Modifier.height(32.dp))
+        }
+
+        // Show Update Dialog if update is available
+        if (updateState.availableUpdate != null) {
+            com.snapreel.app.ui.common.UpdateDialog(
+                updateInfo = updateState.availableUpdate!!,
+                isDownloading = updateState.isDownloading,
+                downloadProgress = updateState.downloadProgress,
+                downloadedBytes = updateState.downloadedBytes,
+                totalBytes = updateState.totalBytes,
+                error = updateState.error,
+                onUpdateClick = { viewModel.startUpdate() },
+                onDismiss = { viewModel.dismissUpdateDialog() }
+            )
         }
     }
 
