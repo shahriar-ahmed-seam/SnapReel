@@ -35,7 +35,7 @@ fun FolderMediaGridScreen(
     returnedIndex: Int? = null,
     onBack: () -> Unit,
     onMediaClick: (Int) -> Unit,
-    viewModel: ReelsViewerViewModel = hiltViewModel()
+    viewModel: FolderGridViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val gridState = rememberLazyGridState()
