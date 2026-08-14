@@ -7,13 +7,15 @@ import androidx.compose.foundation.gestures.calculatePan
 import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -25,6 +27,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import com.snapreel.app.data.model.MediaItem
+import com.snapreel.app.data.preferences.AspectRatioMode
 import com.snapreel.app.ui.theme.*
 import kotlinx.coroutines.delay
 
@@ -36,7 +39,7 @@ fun ImagePage(
     showFileName: Boolean,
     autoAdvance: Boolean,
     autoAdvanceDelay: Int,
-    fillScreen: Boolean = true,
+    aspectRatioMode: AspectRatioMode = AspectRatioMode.SMART,
     onTap: () -> Unit,
     onAutoAdvance: () -> Unit
 ) {
@@ -47,6 +50,16 @@ fun ImagePage(
 
     // Auto-advance countdown
     var countdown by remember { mutableIntStateOf(autoAdvanceDelay) }
+
+    // Smart Aspect Ratio & Manual Quick-Toggle State
+    var isLandscape by remember(mediaItem.uri) { mutableStateOf(false) }
+    var manualZoomOverride by remember(mediaItem.uri) { mutableStateOf<Boolean?>(null) }
+
+    val shouldZoom = manualZoomOverride ?: when (aspectRatioMode) {
+        AspectRatioMode.SMART -> !isLandscape
+        AspectRatioMode.FILL -> true
+        AspectRatioMode.FIT -> false
+    }
 
     // Use rememberUpdatedState so the tap callback is always fresh
     val currentOnTap by rememberUpdatedState(onTap)
@@ -106,10 +119,34 @@ fun ImagePage(
                 }
             }
     ) {
+        // 1. Frosted Blurred Backdrop for Landscape/Fitted Photos
+        if (!shouldZoom) {
+            AsyncImage(
+                model = mediaItem.uri,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .blur(24.dp)
+            )
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.5f))
+            )
+        }
+
+        // 2. Foreground Photo
         AsyncImage(
             model = mediaItem.uri,
             contentDescription = mediaItem.name,
-            contentScale = if (fillScreen) ContentScale.Crop else ContentScale.Fit,
+            contentScale = if (shouldZoom) ContentScale.Crop else ContentScale.Fit,
+            onSuccess = { state ->
+                val img = state.result.image
+                if (img.width > 0 && img.height > 0) {
+                    isLandscape = img.width > img.height
+                }
+            },
             modifier = Modifier
                 .fillMaxSize()
                 .graphicsLayer {
@@ -117,10 +154,7 @@ fun ImagePage(
                     scaleY = scale
                     translationX = offsetX
                     translationY = offsetY
-                },
-            onError = {
-                // Will show fallback below
-            }
+                }
         )
 
         // Image type indicator (top-left area, below status bar) — hides in immersive
@@ -155,6 +189,32 @@ fun ImagePage(
                         fontWeight = FontWeight.Medium
                     )
                 }
+            }
+        }
+
+        // Aspect Ratio Quick-Toggle Button (Fit / Fill)
+        AnimatedVisibility(
+            visible = showControls,
+            enter = fadeIn(tween(200)),
+            exit = fadeOut(tween(200)),
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .navigationBarsPadding()
+                .padding(bottom = 80.dp, end = 12.dp)
+        ) {
+            IconButton(
+                onClick = { manualZoomOverride = !shouldZoom },
+                modifier = Modifier
+                    .size(40.dp)
+                    .clip(CircleShape)
+                    .background(Color.Black.copy(alpha = 0.4f))
+            ) {
+                Icon(
+                    imageVector = if (shouldZoom) Icons.Filled.FitScreen else Icons.Filled.Fullscreen,
+                    contentDescription = if (shouldZoom) "Fit to Screen" else "Fill Screen",
+                    tint = Color.White,
+                    modifier = Modifier.size(20.dp)
+                )
             }
         }
 

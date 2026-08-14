@@ -21,6 +21,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.snapreel.app.data.preferences.AspectRatioMode
 import com.snapreel.app.data.preferences.SortOrder
 import com.snapreel.app.ui.theme.*
 
@@ -34,6 +35,7 @@ fun SettingsScreen(
     val updateState by viewModel.updateState.collectAsState()
     var showSortDialog by remember { mutableStateOf(false) }
     var showDelayDialog by remember { mutableStateOf(false) }
+    var showAspectRatioDialog by remember { mutableStateOf(false) }
 
     Scaffold(
         containerColor = Black,
@@ -82,12 +84,11 @@ fun SettingsScreen(
 
                 HorizontalDivider(color = SurfaceElevated, thickness = 0.5.dp)
 
-                SettingsToggleItem(
-                    icon = Icons.Filled.Fullscreen,
-                    title = "Fill Screen (Reels Mode)",
-                    subtitle = "Crop videos to fill full screen without black bars",
-                    checked = settings.fillScreen,
-                    onCheckedChange = { viewModel.setFillScreen(it) }
+                SettingsClickItem(
+                    icon = Icons.Filled.AspectRatio,
+                    title = "Display Aspect Ratio",
+                    subtitle = formatAspectRatioMode(settings.aspectRatioMode),
+                    onClick = { showAspectRatioDialog = true }
                 )
 
                 HorizontalDivider(color = SurfaceElevated, thickness = 0.5.dp)
@@ -274,6 +275,18 @@ fun SettingsScreen(
                 showDelayDialog = false
             },
             onDismiss = { showDelayDialog = false }
+        )
+    }
+
+    // Aspect Ratio dialog
+    if (showAspectRatioDialog) {
+        AspectRatioDialog(
+            currentMode = settings.aspectRatioMode,
+            onModeSelected = {
+                viewModel.setAspectRatioMode(it)
+                showAspectRatioDialog = false
+            },
+            onDismiss = { showAspectRatioDialog = false }
         )
     }
 }
@@ -496,4 +509,74 @@ private fun formatSortOrder(order: SortOrder): String = when (order) {
     SortOrder.SIZE_SMALLEST -> "Size (Smallest first)"
     SortOrder.TYPE_VIDEO_FIRST -> "Type (Videos first)"
     SortOrder.TYPE_IMAGE_FIRST -> "Type (Images first)"
+}
+
+@Composable
+private fun AspectRatioDialog(
+    currentMode: AspectRatioMode,
+    onModeSelected: (AspectRatioMode) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val options = listOf(
+        AspectRatioMode.SMART to ("Smart Auto (Recommended)" to "Crop vertical reels, fit landscape with blurred background"),
+        AspectRatioMode.FILL to ("Always Fill Screen" to "Crop all videos to fill vertical screen"),
+        AspectRatioMode.FIT to ("Always Fit (Original Ratio)" to "Show complete video with black bars")
+    )
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = SurfaceVariant,
+        title = {
+            Text("Display Aspect Ratio", color = TextPrimary)
+        },
+        text = {
+            Column {
+                options.forEach { (mode, desc) ->
+                    val (title, subtitle) = desc
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable { onModeSelected(mode) }
+                            .padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(
+                            selected = currentMode == mode,
+                            onClick = { onModeSelected(mode) },
+                            colors = RadioButtonDefaults.colors(
+                                selectedColor = Violet500,
+                                unselectedColor = TextMuted
+                            )
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Column {
+                            Text(
+                                text = title,
+                                color = if (currentMode == mode) TextPrimary else TextSecondary,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Medium
+                            )
+                            Text(
+                                text = subtitle,
+                                color = TextMuted,
+                                fontSize = 11.sp
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel", color = Violet400)
+            }
+        }
+    )
+}
+
+private fun formatAspectRatioMode(mode: AspectRatioMode): String = when (mode) {
+    AspectRatioMode.SMART -> "Smart Auto (Recommended)"
+    AspectRatioMode.FILL -> "Always Fill (Reel Zoom)"
+    AspectRatioMode.FIT -> "Always Fit (Original Ratio)"
 }

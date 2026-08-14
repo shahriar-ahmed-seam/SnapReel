@@ -16,6 +16,10 @@ enum class SortOrder {
     NAME_ASC, NAME_DESC, DATE_NEWEST, DATE_OLDEST, SIZE_LARGEST, SIZE_SMALLEST, TYPE_VIDEO_FIRST, TYPE_IMAGE_FIRST
 }
 
+enum class AspectRatioMode {
+    SMART, FILL, FIT
+}
+
 data class AppSettings(
     val loopVideos: Boolean = true,
     val shuffleMedia: Boolean = false,
@@ -24,7 +28,7 @@ data class AppSettings(
     val autoAdvanceDelaySeconds: Int = 5,
     val hapticFeedback: Boolean = true,
     val showFileName: Boolean = true,
-    val fillScreen: Boolean = true
+    val aspectRatioMode: AspectRatioMode = AspectRatioMode.SMART
 )
 
 @Singleton
@@ -39,7 +43,7 @@ class AppPreferences @Inject constructor(
         val AUTO_ADVANCE_DELAY = intPreferencesKey("auto_advance_delay")
         val HAPTIC_FEEDBACK = booleanPreferencesKey("haptic_feedback")
         val SHOW_FILE_NAME = booleanPreferencesKey("show_file_name")
-        val FILL_SCREEN = booleanPreferencesKey("fill_screen")
+        val ASPECT_RATIO_MODE = stringPreferencesKey("aspect_ratio_mode")
         val RECENT_FOLDERS = stringPreferencesKey("recent_folders")
     }
 
@@ -56,7 +60,11 @@ class AppPreferences @Inject constructor(
             autoAdvanceDelaySeconds = prefs[Keys.AUTO_ADVANCE_DELAY] ?: 5,
             hapticFeedback = prefs[Keys.HAPTIC_FEEDBACK] ?: true,
             showFileName = prefs[Keys.SHOW_FILE_NAME] ?: true,
-            fillScreen = prefs[Keys.FILL_SCREEN] ?: true
+            aspectRatioMode = try {
+                AspectRatioMode.valueOf(prefs[Keys.ASPECT_RATIO_MODE] ?: AspectRatioMode.SMART.name)
+            } catch (_: Exception) {
+                AspectRatioMode.SMART
+            }
         )
     }
 
@@ -93,8 +101,8 @@ class AppPreferences @Inject constructor(
         context.dataStore.edit { it[Keys.SHOW_FILE_NAME] = value }
     }
 
-    suspend fun updateFillScreen(value: Boolean) {
-        context.dataStore.edit { it[Keys.FILL_SCREEN] = value }
+    suspend fun updateAspectRatioMode(mode: AspectRatioMode) {
+        context.dataStore.edit { it[Keys.ASPECT_RATIO_MODE] = mode.name }
     }
 
     suspend fun addRecentFolder(uriString: String, displayName: String) {

@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.snapreel.app.data.preferences.AppPreferences
 import com.snapreel.app.data.preferences.AppSettings
+import com.snapreel.app.data.preferences.AspectRatioMode
 import com.snapreel.app.data.preferences.SortOrder
 import com.snapreel.app.util.AppUpdateInfo
 import com.snapreel.app.util.UpdateManager
@@ -115,7 +116,7 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch { appPreferences.updateShowFileName(value) }
     }
 
-    fun setFillScreen(value: Boolean) {
-        viewModelScope.launch { appPreferences.updateFillScreen(value) }
+    fun setAspectRatioMode(mode: AspectRatioMode) {
+        viewModelScope.launch { appPreferences.updateAspectRatioMode(mode) }
     }
 }
