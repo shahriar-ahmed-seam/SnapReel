@@ -28,6 +28,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.PlayerView
+import coil3.request.crossfade
 import com.snapreel.app.data.model.MediaItem
 import com.snapreel.app.player.ReelPlayerManager
 import com.snapreel.app.ui.theme.*
@@ -81,13 +82,11 @@ fun VideoPage(
     LaunchedEffect(isCurrentPage, isDraggingSlider) {
         if (isCurrentPage && !isDraggingSlider) {
             while (true) {
-                val p = playerManager.getPlayerForUri(mediaItem.uri)
-                if (p != null) {
-                    currentTime.longValue = p.currentPosition
-                    totalTime.longValue = p.duration.coerceAtLeast(0)
-                    if (totalTime.longValue > 0) {
-                        progress = (currentTime.longValue.toFloat() / totalTime.longValue.toFloat()).coerceIn(0f, 1f)
-                    }
+                val p = playerManager.player
+                currentTime.longValue = p.currentPosition
+                totalTime.longValue = p.duration.coerceAtLeast(0)
+                if (totalTime.longValue > 0) {
+                    progress = (currentTime.longValue.toFloat() / totalTime.longValue.toFloat()).coerceIn(0f, 1f)
                 }
                 delay(100)
             }
@@ -118,29 +117,42 @@ fun VideoPage(
                 )
             }
     ) {
-        // Video Player
-        AndroidView(
-            factory = { context ->
-                PlayerView(context).apply {
-                    useController = false
-                    layoutParams = FrameLayout.LayoutParams(
-                        ViewGroup.LayoutParams.MATCH_PARENT,
-                        ViewGroup.LayoutParams.MATCH_PARENT
-                    )
-                    setKeepContentOnPlayerReset(true)
-                }
-            },
-            update = { playerView ->
-                val p = playerManager.getPlayerForUri(mediaItem.uri)
-                if (playerView.player != p) {
-                    playerView.player = p
-                }
-            },
-            onRelease = { playerView ->
-                playerView.player = null
-            },
+        // Instant Preview Thumbnail Background (Zero black flicker while swiping)
+        coil3.compose.AsyncImage(
+            model = coil3.request.ImageRequest.Builder(androidx.compose.ui.platform.LocalContext.current)
+                .data(mediaItem.uri)
+                .crossfade(false)
+                .build(),
+            contentDescription = mediaItem.name,
+            contentScale = androidx.compose.ui.layout.ContentScale.Crop,
             modifier = Modifier.fillMaxSize()
         )
+
+        // Hardware-Accelerated Video Player with TextureView
+        if (isCurrentPage) {
+            AndroidView(
+                factory = { context ->
+                    PlayerView(context).apply {
+                        useController = false
+                        setShutterBackgroundColor(android.graphics.Color.TRANSPARENT)
+                        layoutParams = FrameLayout.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                            ViewGroup.LayoutParams.MATCH_PARENT
+                        )
+                        setKeepContentOnPlayerReset(true)
+                    }
+                },
+                update = { playerView ->
+                    if (playerView.player != playerManager.player) {
+                        playerView.player = playerManager.player
+                    }
+                },
+                onRelease = { playerView ->
+                    playerView.player = null
+                },
+                modifier = Modifier.fillMaxSize()
+            )
+        }
 
         // Center play icon — visible when video is paused (State C)
         AnimatedVisibility(

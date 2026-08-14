@@ -9,6 +9,7 @@ import coil3.disk.directory
 import coil3.memory.MemoryCache
 import coil3.request.crossfade
 import coil3.video.VideoFrameDecoder
+import com.snapreel.app.util.MediaThumbnailFetcher
 import dagger.hilt.android.HiltAndroidApp
 
 @HiltAndroidApp
@@ -16,6 +17,7 @@ class SnapReelApp : Application(), SingletonImageLoader.Factory {
     override fun newImageLoader(context: PlatformContext): ImageLoader {
         return ImageLoader.Builder(context)
             .components {
+                add(MediaThumbnailFetcher.Factory())
                 add(VideoFrameDecoder.Factory())
             }
             .memoryCache {
