@@ -158,6 +158,12 @@ class ReelsViewerViewModel @Inject constructor(
         }
     }
 
+    suspend fun getSavedLastIndex(folderUri: Uri): Int {
+        val entries = appPreferences.recentFolders.first()
+        val match = entries.find { it.startsWith("${folderUri}<<>>") }
+        return match?.let { appPreferences.parseRecentFolderEntry(it)?.lastIndex } ?: 0
+    }
+
     fun saveLastViewedIndex(folderUri: Uri, index: Int) {
         viewModelScope.launch {
             appPreferences.updateLastViewedIndex(folderUri.toString(), index)

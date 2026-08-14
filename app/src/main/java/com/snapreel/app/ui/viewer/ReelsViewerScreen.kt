@@ -2,6 +2,7 @@ package com.snapreel.app.ui.viewer
 
 import android.net.Uri
 import android.view.HapticFeedbackConstants
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
@@ -39,6 +40,11 @@ fun ReelsViewerScreen(
     val view = LocalView.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val scope = rememberCoroutineScope()
+    
+    // Intercept system back button / back gesture
+    BackHandler {
+        onBack(uiState.currentIndex)
+    }
 
     // Load media on first composition
     LaunchedEffect(folderUri, startIndex) {

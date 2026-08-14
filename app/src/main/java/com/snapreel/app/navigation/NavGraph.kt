@@ -4,6 +4,8 @@ import android.net.Uri
 import androidx.compose.animation.*
 import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -57,8 +59,10 @@ fun SnapReelNavGraph() {
             val folderUri = backStackEntry.arguments?.getString("folderUri")?.let {
                 Uri.parse(it)
             }
-            // Read the saved index if we just returned from Viewer
-            val lastViewedIndex = backStackEntry.savedStateHandle.get<Int>("lastViewedIndex")
+            // Read the saved index reactively if we just returned from Viewer
+            val lastViewedIndex by backStackEntry.savedStateHandle
+                .getStateFlow<Int?>("lastViewedIndex", null)
+                .collectAsState()
 
             if (folderUri != null) {
                 FolderMediaGridScreen(

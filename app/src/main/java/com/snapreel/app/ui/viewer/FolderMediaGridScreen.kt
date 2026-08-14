@@ -45,8 +45,11 @@ fun FolderMediaGridScreen(
     }
 
     LaunchedEffect(returnedIndex, uiState.mediaItems.size) {
-        if (returnedIndex != null && returnedIndex >= 0 && returnedIndex < uiState.mediaItems.size) {
-            gridState.scrollToItem(returnedIndex)
+        if (uiState.mediaItems.isNotEmpty()) {
+            val targetIndex = returnedIndex ?: viewModel.getSavedLastIndex(folderUri)
+            if (targetIndex in uiState.mediaItems.indices) {
+                gridState.scrollToItem(targetIndex)
+            }
         }
     }
 
