@@ -10,10 +10,18 @@ import coil3.memory.MemoryCache
 import coil3.request.crossfade
 import coil3.video.VideoFrameDecoder
 import com.snapreel.app.util.MediaThumbnailFetcher
+import com.snapreel.app.util.UpdateManager
 import dagger.hilt.android.HiltAndroidApp
 
 @HiltAndroidApp
 class SnapReelApp : Application(), SingletonImageLoader.Factory {
+
+    override fun onCreate() {
+        super.onCreate()
+        // Automatically delete any old downloaded APK update installers from storage
+        UpdateManager.cleanupOldUpdateApks(this)
+    }
+
     override fun newImageLoader(context: PlatformContext): ImageLoader {
         return ImageLoader.Builder(context)
             .components {

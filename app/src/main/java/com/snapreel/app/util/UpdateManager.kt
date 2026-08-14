@@ -33,6 +33,19 @@ class UpdateManager @Inject constructor(
     companion object {
         private const val GITHUB_API_LATEST_RELEASE =
             "https://api.github.com/repos/shahriar-ahmed-seam/SnapReel/releases/latest"
+
+        fun cleanupOldUpdateApks(context: Context) {
+            try {
+                val dirs = listOfNotNull(context.cacheDir, context.externalCacheDir)
+                for (dir in dirs) {
+                    dir.listFiles()?.forEach { file ->
+                        if (file.name.endsWith(".apk", ignoreCase = true) || file.name.startsWith("snapreel_update")) {
+                            file.delete()
+                        }
+                    }
+                }
+            } catch (_: Exception) {}
+        }
     }
 
     suspend fun checkForUpdates(): AppUpdateInfo? = withContext(Dispatchers.IO) {
