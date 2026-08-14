@@ -114,4 +114,8 @@ class SettingsViewModel @Inject constructor(
     fun setShowFileName(value: Boolean) {
         viewModelScope.launch { appPreferences.updateShowFileName(value) }
     }
+
+    fun setFillScreen(value: Boolean) {
+        viewModelScope.launch { appPreferences.updateFillScreen(value) }
+    }
 }

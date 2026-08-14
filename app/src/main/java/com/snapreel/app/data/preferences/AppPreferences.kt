@@ -23,7 +23,8 @@ data class AppSettings(
     val autoAdvanceImages: Boolean = false,
     val autoAdvanceDelaySeconds: Int = 5,
     val hapticFeedback: Boolean = true,
-    val showFileName: Boolean = true
+    val showFileName: Boolean = true,
+    val fillScreen: Boolean = true
 )
 
 @Singleton
@@ -38,6 +39,7 @@ class AppPreferences @Inject constructor(
         val AUTO_ADVANCE_DELAY = intPreferencesKey("auto_advance_delay")
         val HAPTIC_FEEDBACK = booleanPreferencesKey("haptic_feedback")
         val SHOW_FILE_NAME = booleanPreferencesKey("show_file_name")
+        val FILL_SCREEN = booleanPreferencesKey("fill_screen")
         val RECENT_FOLDERS = stringPreferencesKey("recent_folders")
     }
 
@@ -53,7 +55,8 @@ class AppPreferences @Inject constructor(
             autoAdvanceImages = prefs[Keys.AUTO_ADVANCE_IMAGES] ?: false,
             autoAdvanceDelaySeconds = prefs[Keys.AUTO_ADVANCE_DELAY] ?: 5,
             hapticFeedback = prefs[Keys.HAPTIC_FEEDBACK] ?: true,
-            showFileName = prefs[Keys.SHOW_FILE_NAME] ?: true
+            showFileName = prefs[Keys.SHOW_FILE_NAME] ?: true,
+            fillScreen = prefs[Keys.FILL_SCREEN] ?: true
         )
     }
 
@@ -88,6 +91,10 @@ class AppPreferences @Inject constructor(
 
     suspend fun updateShowFileName(value: Boolean) {
         context.dataStore.edit { it[Keys.SHOW_FILE_NAME] = value }
+    }
+
+    suspend fun updateFillScreen(value: Boolean) {
+        context.dataStore.edit { it[Keys.FILL_SCREEN] = value }
     }
 
     suspend fun addRecentFolder(uriString: String, displayName: String) {

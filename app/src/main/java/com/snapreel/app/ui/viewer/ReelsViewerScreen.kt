@@ -200,6 +200,7 @@ private fun ReelsContent(
                     isMuted = uiState.isMuted,
                     showControls = uiState.showControls,
                     showFileName = uiState.settings.showFileName,
+                    fillScreen = uiState.settings.fillScreen,
                     // Zero logic in lambdas — just call ViewModel
                     onTap = { viewModel.onVideoTap() },
                     onDoubleTapLeft = { viewModel.seekBackward() },
@@ -227,6 +228,7 @@ private fun ReelsContent(
                     showFileName = uiState.settings.showFileName,
                     autoAdvance = uiState.settings.autoAdvanceImages,
                     autoAdvanceDelay = uiState.settings.autoAdvanceDelaySeconds,
+                    fillScreen = uiState.settings.fillScreen,
                     onTap = { viewModel.onImageTap() },
                     onAutoAdvance = {
                         if (pageIndex < uiState.mediaItems.size - 1) {

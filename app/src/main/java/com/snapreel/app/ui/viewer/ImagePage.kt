@@ -36,6 +36,7 @@ fun ImagePage(
     showFileName: Boolean,
     autoAdvance: Boolean,
     autoAdvanceDelay: Int,
+    fillScreen: Boolean = true,
     onTap: () -> Unit,
     onAutoAdvance: () -> Unit
 ) {
@@ -108,7 +109,7 @@ fun ImagePage(
         AsyncImage(
             model = mediaItem.uri,
             contentDescription = mediaItem.name,
-            contentScale = ContentScale.Fit,
+            contentScale = if (fillScreen) ContentScale.Crop else ContentScale.Fit,
             modifier = Modifier
                 .fillMaxSize()
                 .graphicsLayer {

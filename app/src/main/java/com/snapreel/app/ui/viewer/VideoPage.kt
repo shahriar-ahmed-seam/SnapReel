@@ -44,6 +44,7 @@ fun VideoPage(
     isMuted: Boolean,
     showControls: Boolean,
     showFileName: Boolean,
+    fillScreen: Boolean = true,
     onTap: () -> Unit,
     onDoubleTapLeft: () -> Unit,
     onDoubleTapRight: () -> Unit,
@@ -124,16 +125,17 @@ fun VideoPage(
                 .crossfade(false)
                 .build(),
             contentDescription = mediaItem.name,
-            contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+            contentScale = if (fillScreen) androidx.compose.ui.layout.ContentScale.Crop else androidx.compose.ui.layout.ContentScale.Fit,
             modifier = Modifier.fillMaxSize()
         )
 
-        // Hardware-Accelerated Video Player with TextureView
+        // Hardware-Accelerated Video Player
         if (isCurrentPage) {
             AndroidView(
                 factory = { context ->
                     PlayerView(context).apply {
                         useController = false
+                        resizeMode = if (fillScreen) androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_ZOOM else androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT
                         setShutterBackgroundColor(android.graphics.Color.TRANSPARENT)
                         layoutParams = FrameLayout.LayoutParams(
                             ViewGroup.LayoutParams.MATCH_PARENT,
@@ -143,6 +145,10 @@ fun VideoPage(
                     }
                 },
                 update = { playerView ->
+                    val targetResizeMode = if (fillScreen) androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_ZOOM else androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT
+                    if (playerView.resizeMode != targetResizeMode) {
+                        playerView.resizeMode = targetResizeMode
+                    }
                     if (playerView.player != playerManager.player) {
                         playerView.player = playerManager.player
                     }

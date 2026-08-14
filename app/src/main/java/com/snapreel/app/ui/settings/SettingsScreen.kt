@@ -83,6 +83,16 @@ fun SettingsScreen(
                 HorizontalDivider(color = SurfaceElevated, thickness = 0.5.dp)
 
                 SettingsToggleItem(
+                    icon = Icons.Filled.Fullscreen,
+                    title = "Fill Screen (Reels Mode)",
+                    subtitle = "Crop videos to fill full screen without black bars",
+                    checked = settings.fillScreen,
+                    onCheckedChange = { viewModel.setFillScreen(it) }
+                )
+
+                HorizontalDivider(color = SurfaceElevated, thickness = 0.5.dp)
+
+                SettingsToggleItem(
                     icon = Icons.Filled.Shuffle,
                     title = "Shuffle Media",
                     subtitle = "Randomize playback order",
