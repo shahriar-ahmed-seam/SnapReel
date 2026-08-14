@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Film strip / reel outline -->
+    <path
+        android:pathData="M36,30 L72,30 A6,6 0 0,1 78,36 L78,72 A6,6 0 0,1 72,78 L36,78 A6,6 0 0,1 30,72 L30,36 A6,6 0 0,1 36,30 Z"
+        android:strokeWidth="2.5"
+        android:strokeColor="#8B5CF6"
+        android:fillColor="#00000000"/>
+
+    <!-- Film perforations top -->
+    <path
+        android:pathData="M38,30 L38,26 M44,30 L44,26 M50,30 L50,26 M56,30 L56,26 M62,30 L62,26 M68,30 L68,26"
+        android:strokeWidth="2"
+        android:strokeColor="#6D28D9"
+        android:fillColor="#00000000"/>
+
+    <!-- Film perforations bottom -->
+    <path
+        android:pathData="M38,78 L38,82 M44,78 L44,82 M50,78 L50,82 M56,78 L56,82 M62,78 L62,82 M68,78 L68,82"
+        android:strokeWidth="2"
+        android:strokeColor="#6D28D9"
+        android:fillColor="#00000000"/>
+
+    <!-- Play triangle -->
+    <path
+        android:pathData="M46,42 L46,66 L66,54 Z"
+        android:fillColor="#8B5CF6"/>
+
+    <!-- Inner glow on play button -->
+    <path
+        android:pathData="M48,44 L48,64 L64,54 Z"
+        android:fillColor="#A78BFA"/>
+</vector>
