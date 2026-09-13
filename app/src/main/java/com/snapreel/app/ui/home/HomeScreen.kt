@@ -40,11 +40,12 @@ import com.snapreel.app.ui.theme.*
 @Composable
 fun HomeScreen(
     onFolderSelected: (Uri) -> Unit, // For grid
-    onPlaySelected: (Uri, Int) -> Unit, // For quick play
+    onPlaySelected: (Uri, Int, Boolean) -> Unit, // For quick play
     onSettingsClick: () -> Unit,
     viewModel: HomeViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val settings by viewModel.settings.collectAsState()
     val context = LocalContext.current
 
     val folderPicker = rememberLauncherForActivityResult(
@@ -195,7 +196,7 @@ fun HomeScreen(
                         FolderCard(
                             folder = folder,
                             onClick = { onFolderSelected(folder.uri) },
-                            onPlayClick = { onPlaySelected(folder.uri, folder.lastIndex) },
+                            onPlayClick = { onPlaySelected(folder.uri, folder.lastIndex, settings.landscapeVideoMode) },
                             onDelete = { viewModel.removeRecentFolder(folder) },
                             animationDelay = index * 50
                         )

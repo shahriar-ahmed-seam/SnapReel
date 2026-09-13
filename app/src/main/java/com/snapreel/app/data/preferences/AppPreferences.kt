@@ -28,7 +28,8 @@ data class AppSettings(
     val autoAdvanceDelaySeconds: Int = 5,
     val hapticFeedback: Boolean = true,
     val showFileName: Boolean = true,
-    val aspectRatioMode: AspectRatioMode = AspectRatioMode.SMART
+    val aspectRatioMode: AspectRatioMode = AspectRatioMode.SMART,
+    val landscapeVideoMode: Boolean = false
 )
 
 @Singleton
@@ -44,6 +45,7 @@ class AppPreferences @Inject constructor(
         val HAPTIC_FEEDBACK = booleanPreferencesKey("haptic_feedback")
         val SHOW_FILE_NAME = booleanPreferencesKey("show_file_name")
         val ASPECT_RATIO_MODE = stringPreferencesKey("aspect_ratio_mode")
+        val LANDSCAPE_VIDEO_MODE = booleanPreferencesKey("landscape_video_mode")
         val RECENT_FOLDERS = stringPreferencesKey("recent_folders")
     }
 
@@ -64,7 +66,8 @@ class AppPreferences @Inject constructor(
                 AspectRatioMode.valueOf(prefs[Keys.ASPECT_RATIO_MODE] ?: AspectRatioMode.SMART.name)
             } catch (_: Exception) {
                 AspectRatioMode.SMART
-            }
+            },
+            landscapeVideoMode = prefs[Keys.LANDSCAPE_VIDEO_MODE] ?: false
         )
     }
 
@@ -103,6 +106,10 @@ class AppPreferences @Inject constructor(
 
     suspend fun updateAspectRatioMode(mode: AspectRatioMode) {
         context.dataStore.edit { it[Keys.ASPECT_RATIO_MODE] = mode.name }
+    }
+
+    suspend fun updateLandscapeVideoMode(value: Boolean) {
+        context.dataStore.edit { it[Keys.LANDSCAPE_VIDEO_MODE] = value }
     }
 
     suspend fun addRecentFolder(uriString: String, displayName: String) {

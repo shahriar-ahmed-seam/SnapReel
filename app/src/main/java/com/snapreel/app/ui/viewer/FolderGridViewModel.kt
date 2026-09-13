@@ -8,9 +8,11 @@ import com.snapreel.app.data.preferences.AppPreferences
 import com.snapreel.app.data.repository.MediaRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -29,6 +31,16 @@ class FolderGridViewModel @Inject constructor(
 
     private val _uiState = MutableStateFlow(GridUiState())
     val uiState: StateFlow<GridUiState> = _uiState.asStateFlow()
+
+    val settings: StateFlow<com.snapreel.app.data.preferences.AppSettings> = appPreferences.settings
+        .stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5000), com.snapreel.app.data.preferences.AppSettings())
+
+    fun toggleLandscapeMode() {
+        viewModelScope.launch {
+            val current = settings.value.landscapeVideoMode
+            appPreferences.updateLandscapeVideoMode(!current)
+        }
+    }
 
     fun loadMedia(folderUri: Uri) {
         viewModelScope.launch {

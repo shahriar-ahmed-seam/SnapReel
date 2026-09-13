@@ -40,6 +40,9 @@ class HomeViewModel @Inject constructor(
     private val _uiState = MutableStateFlow(HomeUiState())
     val uiState: StateFlow<HomeUiState> = _uiState.asStateFlow()
 
+    val settings: StateFlow<com.snapreel.app.data.preferences.AppSettings> = appPreferences.settings
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), com.snapreel.app.data.preferences.AppSettings())
+
     init {
         viewModelScope.launch {
             appPreferences.recentFolders.collect { entries ->

@@ -15,14 +15,17 @@ import com.snapreel.app.ui.home.HomeScreen
 import com.snapreel.app.ui.settings.SettingsScreen
 import com.snapreel.app.ui.viewer.FolderMediaGridScreen
 import com.snapreel.app.ui.viewer.ReelsViewerScreen
+import com.snapreel.app.ui.viewer.landscape.LandscapeVideoViewerScreen
 
 object Routes {
     const val HOME = "home"
     const val VIEWER = "viewer/{folderUri}/{startIndex}"
+    const val LANDSCAPE_VIEWER = "landscape_viewer/{folderUri}/{startIndex}"
     const val GRID = "grid/{folderUri}"
     const val SETTINGS = "settings"
 
     fun viewer(folderUri: String, startIndex: Int = 0) = "viewer/${Uri.encode(folderUri)}/$startIndex"
+    fun landscapeViewer(folderUri: String, startIndex: Int = 0) = "landscape_viewer/${Uri.encode(folderUri)}/$startIndex"
     fun grid(folderUri: String) = "grid/${Uri.encode(folderUri)}"
 }
 
@@ -43,8 +46,12 @@ fun SnapReelNavGraph() {
                 onFolderSelected = { uri ->
                     navController.navigate(Routes.grid(uri.toString()))
                 },
-                onPlaySelected = { uri, index ->
-                    navController.navigate(Routes.viewer(uri.toString(), index))
+                onPlaySelected = { uri, index, isLandscape ->
+                    if (isLandscape) {
+                        navController.navigate(Routes.landscapeViewer(uri.toString(), index))
+                    } else {
+                        navController.navigate(Routes.viewer(uri.toString(), index))
+                    }
                 },
                 onSettingsClick = {
                     navController.navigate(Routes.SETTINGS)
@@ -69,10 +76,14 @@ fun SnapReelNavGraph() {
                     folderUri = folderUri,
                     returnedIndex = lastViewedIndex,
                     onBack = { navController.popBackStack() },
-                    onMediaClick = { index ->
+                    onMediaClick = { index, isLandscape ->
                         // Clear the returned index when moving forward
                         backStackEntry.savedStateHandle.remove<Int>("lastViewedIndex")
-                        navController.navigate(Routes.viewer(folderUri.toString(), index))
+                        if (isLandscape) {
+                            navController.navigate(Routes.landscapeViewer(folderUri.toString(), index))
+                        } else {
+                            navController.navigate(Routes.viewer(folderUri.toString(), index))
+                        }
                     }
                 )
             }
@@ -91,6 +102,29 @@ fun SnapReelNavGraph() {
             val startIndex = backStackEntry.arguments?.getInt("startIndex") ?: 0
             if (folderUri != null) {
                 ReelsViewerScreen(
+                    folderUri = folderUri,
+                    startIndex = startIndex,
+                    onBack = { currentIndex -> 
+                        navController.previousBackStackEntry?.savedStateHandle?.set("lastViewedIndex", currentIndex)
+                        navController.popBackStack() 
+                    }
+                )
+            }
+        }
+
+        composable(
+            route = Routes.LANDSCAPE_VIEWER,
+            arguments = listOf(
+                navArgument("folderUri") { type = NavType.StringType },
+                navArgument("startIndex") { type = NavType.IntType }
+            )
+        ) { backStackEntry ->
+            val folderUri = backStackEntry.arguments?.getString("folderUri")?.let {
+                Uri.parse(it)
+            }
+            val startIndex = backStackEntry.arguments?.getInt("startIndex") ?: 0
+            if (folderUri != null) {
+                LandscapeVideoViewerScreen(
                     folderUri = folderUri,
                     startIndex = startIndex,
                     onBack = { currentIndex -> 

@@ -9,6 +9,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -75,6 +76,16 @@ fun SettingsScreen(
 
             SettingsCard {
                 SettingsToggleItem(
+                    icon = Icons.Filled.StayCurrentLandscape,
+                    title = "Landscape Video Mode",
+                    subtitle = "Open videos in dedicated landscape player (videos only)",
+                    checked = settings.landscapeVideoMode,
+                    onCheckedChange = { viewModel.setLandscapeVideoMode(it) }
+                )
+
+                HorizontalDivider(color = SurfaceElevated, thickness = 0.5.dp)
+
+                SettingsToggleItem(
                     icon = Icons.Filled.Loop,
                     title = "Loop Videos",
                     subtitle = "Repeat videos continuously",
@@ -104,7 +115,7 @@ fun SettingsScreen(
                 HorizontalDivider(color = SurfaceElevated, thickness = 0.5.dp)
 
                 SettingsClickItem(
-                    icon = Icons.Filled.Sort,
+                    icon = Icons.AutoMirrored.Filled.Sort,
                     title = "Sort Order",
                     subtitle = formatSortOrder(settings.sortOrder),
                     onClick = { showSortDialog = true }

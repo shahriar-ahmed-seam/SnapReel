@@ -119,4 +119,8 @@ class SettingsViewModel @Inject constructor(
     fun setAspectRatioMode(mode: AspectRatioMode) {
         viewModelScope.launch { appPreferences.updateAspectRatioMode(mode) }
     }
+
+    fun setLandscapeVideoMode(value: Boolean) {
+        viewModelScope.launch { appPreferences.updateLandscapeVideoMode(value) }
+    }
 }
