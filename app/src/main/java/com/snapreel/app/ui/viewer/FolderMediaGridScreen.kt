@@ -22,10 +22,16 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.compose.material.icons.outlined.Movie
+import androidx.compose.ui.platform.LocalContext
 import coil3.compose.AsyncImage
 import coil3.request.ImageRequest
 import coil3.request.crossfade
+import com.snapreel.app.data.repository.FolderLoadError
+import com.snapreel.app.data.repository.displayMessage
+import com.snapreel.app.ui.common.FolderAccessLost
 import com.snapreel.app.ui.theme.*
+import com.snapreel.app.util.thumbnail.videoThumbnailRequest
 
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 
@@ -36,20 +42,31 @@ fun FolderMediaGridScreen(
     returnedIndex: Int? = null,
     onBack: () -> Unit,
     onMediaClick: (Int, Boolean) -> Unit,
+    onOpenOtherFolder: (Uri) -> Unit = {},
     viewModel: FolderGridViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val settings by viewModel.settings.collectAsState()
     val gridState = rememberLazyGridState()
+    val currentOnOpenOtherFolder by rememberUpdatedState(onOpenOtherFolder)
 
     LaunchedEffect(folderUri) {
         viewModel.loadMedia(folderUri)
     }
 
+    LaunchedEffect(viewModel) {
+        viewModel.events.collect { event ->
+            when (event) {
+                is FolderEvent.OpenOtherFolder -> currentOnOpenOtherFolder(event.uri)
+            }
+        }
+    }
+
     val isLandscapeMode = settings.landscapeVideoMode
     val displayedItems = remember(uiState.mediaItems, isLandscapeMode) {
-        if (isLandscapeMode) uiState.mediaItems.filter { it.isVideo } else uiState.mediaItems
+        MediaIndexMapping.gridDisplayedItems(uiState.mediaItems, isLandscapeMode)
     }
+    val loadError = uiState.error
 
     LaunchedEffect(returnedIndex, displayedItems.size) {
         if (displayedItems.isNotEmpty()) {
@@ -119,6 +136,31 @@ fun FolderMediaGridScreen(
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator(color = Violet500)
             }
+        } else if (loadError is FolderLoadError.AccessLost) {
+            FolderAccessLost(
+                folderUri = folderUri,
+                onRePicked = { picked -> viewModel.onFolderRePicked(folderUri, picked) },
+                modifier = Modifier.padding(paddingValues)
+            )
+        } else if (loadError is FolderLoadError.Failed) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(paddingValues),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(24.dp)) {
+                    Text(
+                        text = loadError.displayMessage,
+                        color = Color.White,
+                        fontSize = 15.sp
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    OutlinedButton(onClick = { viewModel.retry(folderUri) }) {
+                        Text("Retry")
+                    }
+                }
+            }
         } else if (displayedItems.isNotEmpty()) {
             LazyVerticalGrid(
                 columns = GridCells.Fixed(3),
@@ -135,20 +177,44 @@ fun FolderMediaGridScreen(
                             .aspectRatio(1f)
                             .background(Color.DarkGray)
                             .clickable {
-                                val originalIndex = uiState.mediaItems.indexOfFirst { it.uri == item.uri }
-                                onMediaClick(if (originalIndex >= 0) originalIndex else index, isLandscapeMode)
+                                onMediaClick(
+                                    MediaIndexMapping.gridTapToFullIndex(uiState.mediaItems, isLandscapeMode, index),
+                                    isLandscapeMode
+                                )
                             }
                     ) {
-                        AsyncImage(
-                            model = coil3.request.ImageRequest.Builder(androidx.compose.ui.platform.LocalContext.current)
-                                .data(item.uri)
-                                .size(300, 300)
-                                .crossfade(true)
-                                .build(),
-                            contentDescription = item.name,
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier.fillMaxSize()
-                        )
+                        if (item.isVideo) {
+                            // Placeholder under the thumbnail: visible while it loads and if it fails.
+                            Icon(
+                                imageVector = Icons.Outlined.Movie,
+                                contentDescription = null,
+                                tint = Color.White.copy(alpha = 0.35f),
+                                modifier = Modifier
+                                    .align(Alignment.Center)
+                                    .size(32.dp)
+                            )
+                            val context = LocalContext.current
+                            val request = remember(item.uri, item.size, item.dateModified, item.supportsThumbnail) {
+                                videoThumbnailRequest(context, item, cacheOnly = false, crossfade = true)
+                            }
+                            AsyncImage(
+                                model = request,
+                                contentDescription = item.name,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        } else {
+                            AsyncImage(
+                                model = coil3.request.ImageRequest.Builder(LocalContext.current)
+                                    .data(item.uri)
+                                    .size(300, 300)
+                                    .crossfade(true)
+                                    .build(),
+                                contentDescription = item.name,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        }
                         if (item.isVideo) {
                             Icon(
                                 imageVector = Icons.Filled.PlayArrow,

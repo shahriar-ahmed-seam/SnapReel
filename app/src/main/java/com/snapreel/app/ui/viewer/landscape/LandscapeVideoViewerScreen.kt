@@ -47,11 +47,17 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import coil3.compose.AsyncImage
-import coil3.request.ImageRequest
-import coil3.request.crossfade
 import com.snapreel.app.data.model.MediaItem
 import com.snapreel.app.data.preferences.AspectRatioMode
+import com.snapreel.app.data.repository.FolderLoadError
+import com.snapreel.app.data.repository.displayMessage
+import com.snapreel.app.ui.common.FolderAccessLost
 import com.snapreel.app.ui.theme.*
+import com.snapreel.app.ui.viewer.FolderEvent
+import com.snapreel.app.ui.viewer.PlaybackFailureOverlay
+import com.snapreel.app.ui.viewer.hapticTickConstant
+import com.snapreel.app.ui.viewer.shouldTick
+import com.snapreel.app.util.thumbnail.videoThumbnailRequest
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -69,7 +75,9 @@ fun Context.findActivity(): Activity? {
 fun LandscapeVideoViewerScreen(
     folderUri: Uri,
     startIndex: Int = 0,
+    fresh: Boolean = false,
     onBack: (Int) -> Unit,
+    onOpenOtherFolder: (Uri) -> Unit = {},
     viewModel: LandscapeVideoViewerViewModel = hiltViewModel()
 ) {
     val context = LocalContext.current
@@ -77,6 +85,15 @@ fun LandscapeVideoViewerScreen(
     val lifecycleOwner = LocalLifecycleOwner.current
     val uiState by viewModel.uiState.collectAsState()
     val scope = rememberCoroutineScope()
+    val currentOnOpenOtherFolder by rememberUpdatedState(onOpenOtherFolder)
+
+    LaunchedEffect(viewModel) {
+        viewModel.events.collect { event ->
+            when (event) {
+                is FolderEvent.OpenOtherFolder -> currentOnOpenOtherFolder(event.uri)
+            }
+        }
+    }
 
     // 1. Force Sensor Landscape Orientation while in this screen
     DisposableEffect(Unit) {
@@ -92,8 +109,11 @@ fun LandscapeVideoViewerScreen(
     DisposableEffect(lifecycleOwner, view) {
         view.keepScreenOn = true
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_PAUSE) {
-                viewModel.onAppPaused()
+            when (event) {
+                Lifecycle.Event.ON_PAUSE -> viewModel.onAppPaused()
+                Lifecycle.Event.ON_STOP -> viewModel.onAppStopped()
+                Lifecycle.Event.ON_START -> viewModel.onAppStarted()
+                else -> Unit
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -112,6 +132,8 @@ fun LandscapeVideoViewerScreen(
         } else {
             0
         }
+        // Pause and free the neighbors first, then pop.
+        viewModel.onLeaving()
         onBack(returnIndex)
     }
 
@@ -120,7 +142,7 @@ fun LandscapeVideoViewerScreen(
     }
 
     LaunchedEffect(folderUri, startIndex) {
-        viewModel.loadVideos(folderUri, startIndex)
+        viewModel.loadVideos(folderUri, startIndex, fresh)
     }
 
     Box(
@@ -136,6 +158,12 @@ fun LandscapeVideoViewerScreen(
                     Text("Loading videos in Landscape...", color = TextSecondary, fontSize = 14.sp)
                 }
             }
+        } else if (uiState.error is FolderLoadError.AccessLost) {
+            FolderAccessLost(
+                folderUri = folderUri,
+                onRePicked = { picked -> viewModel.onFolderRePicked(folderUri, picked, startIndex) },
+                onBack = onExit
+            )
         } else if (uiState.error != null) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -146,7 +174,7 @@ fun LandscapeVideoViewerScreen(
                         modifier = Modifier.size(48.dp)
                     )
                     Spacer(modifier = Modifier.height(12.dp))
-                    Text(text = uiState.error ?: "Unknown error", color = TextSecondary, fontSize = 14.sp)
+                    Text(text = uiState.error?.displayMessage ?: "Unknown error", color = TextSecondary, fontSize = 14.sp)
                     Spacer(modifier = Modifier.height(16.dp))
                     OutlinedButton(onClick = onExit) {
                         Text("Go Back")
@@ -187,11 +215,23 @@ private fun LandscapePagerContent(
     val currentTime = remember { mutableLongStateOf(0L) }
     val totalTime = remember { mutableLongStateOf(0L) }
     var isFillScreen by remember { mutableStateOf(false) }
+    val pages by viewModel.pages.collectAsState()
+    val currentFailure = uiState.videos.getOrNull(pagerState.settledPage)?.let { pages[it.uri]?.failure }
+    val view = LocalView.current
+    val hapticsEnabled by rememberUpdatedState(uiState.settings.hapticFeedback)
+    var lastSettledUri by remember { mutableStateOf<Uri?>(null) }
 
     // React to horizontal page changes
     LaunchedEffect(pagerState.settledPage) {
-        viewModel.onPageSettled(pagerState.settledPage)
-        viewModel.saveLastViewedIndex(folderUri, pagerState.settledPage)
+        val page = pagerState.settledPage
+        val settledUri = uiState.videos.getOrNull(page)?.uri
+        // One tick per settle on a different video (never on the initial settle).
+        if (settledUri != null && shouldTick(lastSettledUri, settledUri, hapticsEnabled)) {
+            view.performHapticFeedback(hapticTickConstant())
+        }
+        lastSettledUri = settledUri
+        viewModel.onPageSettled(page)
+        viewModel.saveLastViewed(folderUri, page)
     }
 
     // Auto-hide controls timer
@@ -206,9 +246,8 @@ private fun LandscapePagerContent(
     LaunchedEffect(pagerState.settledPage, isDraggingSlider) {
         if (!isDraggingSlider) {
             while (true) {
-                val p = viewModel.playerManager.player
-                currentTime.longValue = p.currentPosition
-                totalTime.longValue = p.duration.coerceAtLeast(0)
+                currentTime.longValue = viewModel.pool.positionMs()
+                totalTime.longValue = viewModel.pool.durationMs()
                 if (totalTime.longValue > 0) {
                     sliderProgress = (currentTime.longValue.toFloat() / totalTime.longValue.toFloat()).coerceIn(0f, 1f)
                 }
@@ -247,10 +286,13 @@ private fun LandscapePagerContent(
             key = { uiState.videos[it].uri.toString() }
         ) { pageIndex ->
             val videoItem = uiState.videos[pageIndex]
-            val isCurrentPage = pagerState.settledPage == pageIndex
+            val pageState = pages[videoItem.uri]
+            val pagePlayer = pageState?.player
 
             Box(modifier = Modifier.fillMaxSize()) {
-                if (isCurrentPage) {
+                // Every composed page has its own view bound to its pooled player, so a prepared
+                // neighbor already shows its first frame while the swipe is in progress.
+                run {
                     AndroidView(
                         factory = { context ->
                             PlayerView(context).apply {
@@ -262,7 +304,7 @@ private fun LandscapePagerContent(
                                     ViewGroup.LayoutParams.MATCH_PARENT
                                 )
                                 setKeepContentOnPlayerReset(true)
-                                player = viewModel.playerManager.player
+                                player = pagePlayer
                             }
                         },
                         update = { playerView ->
@@ -270,8 +312,8 @@ private fun LandscapePagerContent(
                             if (playerView.resizeMode != targetResizeMode) {
                                 playerView.resizeMode = targetResizeMode
                             }
-                            if (playerView.player != viewModel.playerManager.player) {
-                                playerView.player = viewModel.playerManager.player
+                            if (playerView.player != pagePlayer) {
+                                playerView.player = pagePlayer
                             }
                         },
                         onRelease = { playerView ->
@@ -279,14 +321,29 @@ private fun LandscapePagerContent(
                         },
                         modifier = Modifier.fillMaxSize()
                     )
-                } else {
+                }
+
+                // The grid's cached thumbnail (memory or disk; a viewer never decodes a frame),
+                // shown until this page's player renders its first frame.
+                if (pageState?.firstFrameRendered != true) {
+                    val context = LocalContext.current
+                    val previewRequest = remember(videoItem.uri, videoItem.size, videoItem.dateModified) {
+                        videoThumbnailRequest(context, videoItem, cacheOnly = true, crossfade = false)
+                    }
                     AsyncImage(
-                        model = ImageRequest.Builder(LocalContext.current)
-                            .data(videoItem.uri)
-                            .crossfade(true)
-                            .build(),
+                        model = previewRequest,
                         contentDescription = videoItem.name,
+                        contentScale = if (isFillScreen) androidx.compose.ui.layout.ContentScale.Crop else androidx.compose.ui.layout.ContentScale.Fit,
                         modifier = Modifier.fillMaxSize()
+                    )
+                }
+
+                // Failure overlay: message + Retry. Swipes pass through to the pager.
+                pageState?.failure?.let { failure ->
+                    PlaybackFailureOverlay(
+                        message = failure.message,
+                        onRetry = { viewModel.retry() },
+                        modifier = Modifier.align(Alignment.Center)
                     )
                 }
             }
@@ -343,7 +400,7 @@ private fun LandscapePagerContent(
 
         // Center Controls (Previous, Large Play/Pause, Next)
         AnimatedVisibility(
-            visible = uiState.showControls || !uiState.isPlaying,
+            visible = (uiState.showControls || !uiState.isPlaying) && currentFailure == null,
             enter = fadeIn(tween(200)),
             exit = fadeOut(tween(200)),
             modifier = Modifier.align(Alignment.Center)
@@ -520,19 +577,18 @@ private fun LandscapePagerContent(
                             onValueChange = { newProgress ->
                                 if (!isDraggingSlider) {
                                     isDraggingSlider = true
-                                    viewModel.playerManager.pause()
+                                    viewModel.onSliderDragStart()
                                 }
                                 sliderProgress = newProgress
                             },
                             onValueChangeFinished = {
                                 isDraggingSlider = false
-                                if (totalTime.longValue > 0) {
-                                    val targetMs = (sliderProgress * totalTime.longValue).toLong()
-                                    viewModel.seekTo(targetMs)
+                                val targetMs = if (totalTime.longValue > 0) {
+                                    (sliderProgress * totalTime.longValue).toLong()
+                                } else {
+                                    null
                                 }
-                                if (uiState.isPlaying) {
-                                    viewModel.playerManager.resume()
-                                }
+                                viewModel.onSliderDragEnd(targetMs)
                             },
                             modifier = Modifier
                                 .weight(1f)

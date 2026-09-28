@@ -22,9 +22,16 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.compose.ui.platform.testTag
 import com.snapreel.app.data.preferences.AspectRatioMode
 import com.snapreel.app.data.preferences.SortOrder
 import com.snapreel.app.ui.theme.*
+import com.snapreel.app.util.reasonText
+import com.snapreel.app.util.update.CheckStatus
+
+object SettingsTags {
+    const val UPDATE_SUBTITLE = "settings_update_subtitle"
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -34,6 +41,8 @@ fun SettingsScreen(
 ) {
     val settings by viewModel.settings.collectAsState()
     val updateState by viewModel.updateState.collectAsState()
+    val checkStatus by viewModel.checkStatus.collectAsState()
+    val isChecking = checkStatus == CheckStatus.Checking
     var showSortDialog by remember { mutableStateOf(false) }
     var showDelayDialog by remember { mutableStateOf(false) }
     var showAspectRatioDialog by remember { mutableStateOf(false) }
@@ -184,7 +193,7 @@ fun SettingsScreen(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clickable(enabled = !updateState.isChecking) { viewModel.checkForUpdates() }
+                        .clickable(enabled = !isChecking) { viewModel.checkForUpdates() }
                         .padding(horizontal = 16.dp, vertical = 14.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -201,14 +210,23 @@ fun SettingsScreen(
                             style = MaterialTheme.typography.bodyLarge,
                             color = TextPrimary
                         )
+                        val version = com.snapreel.app.BuildConfig.VERSION_NAME
+                        val status = checkStatus
+                        // Failures say so in words (not only by color) and offer a retry.
+                        val (subtitle, subtitleColor) = when (status) {
+                            CheckStatus.UpToDate -> "You're on the latest version (v$version)" to Violet400
+                            is CheckStatus.Failed ->
+                                "Couldn't check for updates (${status.reason.reasonText}). Tap to retry." to ErrorRed
+                            else -> "Installed: v$version" to TextMuted
+                        }
                         Text(
-                            text = if (updateState.isUpToDate) "You're on the latest version (v${com.snapreel.app.BuildConfig.VERSION_NAME})" 
-                                   else "Installed: v${com.snapreel.app.BuildConfig.VERSION_NAME}",
+                            text = subtitle,
                             style = MaterialTheme.typography.bodySmall,
-                            color = if (updateState.isUpToDate) Violet400 else TextMuted
+                            color = subtitleColor,
+                            modifier = Modifier.testTag(SettingsTags.UPDATE_SUBTITLE)
                         )
                     }
-                    if (updateState.isChecking) {
+                    if (isChecking) {
                         CircularProgressIndicator(
                             modifier = Modifier.size(20.dp),
                             color = Violet500,
@@ -250,19 +268,8 @@ fun SettingsScreen(
             Spacer(modifier = Modifier.height(32.dp))
         }
 
-        // Show Update Dialog if update is available
-        if (updateState.availableUpdate != null) {
-            com.snapreel.app.ui.common.UpdateDialog(
-                updateInfo = updateState.availableUpdate!!,
-                isDownloading = updateState.isDownloading,
-                downloadProgress = updateState.downloadProgress,
-                downloadedBytes = updateState.downloadedBytes,
-                totalBytes = updateState.totalBytes,
-                error = updateState.error,
-                onUpdateClick = { viewModel.startUpdate() },
-                onDismiss = { viewModel.dismissUpdateDialog() }
-            )
-        }
+        // The update dialog, once a check finds an update (shared with Home)
+        com.snapreel.app.ui.common.UpdateDialogHost(state = updateState, coordinator = viewModel.updateCoordinator)
     }
 
     // Sort order dialog

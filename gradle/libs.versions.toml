@@ -14,6 +14,14 @@ activityCompose = "1.10.1"
 lifecycleRuntimeKtx = "2.9.0"
 coreSplashscreen = "1.0.1"
 
+# Testing
+junit = "4.13.2"
+robolectric = "4.16"
+kotestProperty = "5.9.1"
+kotlinxCoroutinesTest = "1.10.2"
+androidxTestCore = "1.6.1"
+androidxTestExtJunit = "1.2.1"
+
 [libraries]
 # Compose BOM
 androidx-compose-bom = { group = "androidx.compose", name = "compose-bom", version.ref = "composeBom" }
@@ -43,7 +51,6 @@ androidx-media3-session = { group = "androidx.media3", name = "media3-session", 
 
 # Coil Image Loading
 coil-compose = { group = "io.coil-kt.coil3", name = "coil-compose", version.ref = "coil" }
-coil-video = { group = "io.coil-kt.coil3", name = "coil-video", version.ref = "coil" }
 
 # Hilt DI
 hilt-android = { group = "com.google.dagger", name = "hilt-android", version.ref = "hilt" }
@@ -55,6 +62,19 @@ androidx-datastore-preferences = { group = "androidx.datastore", name = "datasto
 
 # Splash
 androidx-core-splashscreen = { group = "androidx.core", name = "core-splashscreen", version.ref = "coreSplashscreen" }
+
+# Testing
+junit = { group = "junit", name = "junit", version.ref = "junit" }
+robolectric = { group = "org.robolectric", name = "robolectric", version.ref = "robolectric" }
+kotest-property = { group = "io.kotest", name = "kotest-property", version.ref = "kotestProperty" }
+kotlinx-coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-test", version.ref = "kotlinxCoroutinesTest" }
+androidx-test-core-ktx = { group = "androidx.test", name = "core-ktx", version.ref = "androidxTestCore" }
+androidx-test-ext-junit-ktx = { group = "androidx.test.ext", name = "junit-ktx", version.ref = "androidxTestExtJunit" }
+androidx-media3-test-utils = { group = "androidx.media3", name = "media3-test-utils", version.ref = "media3" }
+androidx-media3-test-utils-robolectric = { group = "androidx.media3", name = "media3-test-utils-robolectric", version.ref = "media3" }
+androidx-navigation-testing = { group = "androidx.navigation", name = "navigation-testing", version.ref = "navigationCompose" }
+androidx-ui-test-junit4 = { group = "androidx.compose.ui", name = "ui-test-junit4" }
+androidx-ui-test-manifest = { group = "androidx.compose.ui", name = "ui-test-manifest" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

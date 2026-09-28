@@ -8,25 +8,48 @@ import coil3.disk.DiskCache
 import coil3.disk.directory
 import coil3.memory.MemoryCache
 import coil3.request.crossfade
-import coil3.video.VideoFrameDecoder
-import com.snapreel.app.util.MediaThumbnailFetcher
-import com.snapreel.app.util.UpdateManager
+import com.snapreel.app.di.ApplicationScope
+import com.snapreel.app.util.thumbnail.VideoThumbnailFetcher
+import com.snapreel.app.util.update.UpdateFiles
+import com.snapreel.app.util.thumbnail.VideoThumbnailKeyer
 import dagger.hilt.android.HiltAndroidApp
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import java.io.File
+import javax.inject.Inject
 
 @HiltAndroidApp
 class SnapReelApp : Application(), SingletonImageLoader.Factory {
 
+    @Inject
+    lateinit var videoThumbnailFetcherFactory: VideoThumbnailFetcher.Factory
+
+    @Inject
+    @field:ApplicationScope
+    lateinit var applicationScope: CoroutineScope
+
+    @Inject
+    lateinit var updateFiles: UpdateFiles
+
     override fun onCreate() {
         super.onCreate()
-        // Automatically delete any old downloaded APK update installers from storage
-        UpdateManager.cleanupOldUpdateApks(this)
+        applicationScope.launch(Dispatchers.IO) {
+            // Only stale update files go: a validated pending update newer than this version is
+            // kept, so an install interrupted by a process restart can still finish.
+            updateFiles.deleteStale(BuildConfig.VERSION_CODE.toLong())
+            // The pre-1.3 thumbnail store (unbounded, keyed on the URI only). Replaced by
+            // noBackupFilesDir/video_thumbs.
+            File(filesDir, LEGACY_THUMBNAIL_DIR).deleteRecursively()
+        }
     }
 
     override fun newImageLoader(context: PlatformContext): ImageLoader {
         return ImageLoader.Builder(context)
             .components {
-                add(MediaThumbnailFetcher.Factory())
-                add(VideoFrameDecoder.Factory())
+                // Video tiles use VideoThumbnail data; images keep Coil's native pipeline.
+                add(VideoThumbnailKeyer())
+                add(videoThumbnailFetcherFactory)
             }
             .memoryCache {
                 MemoryCache.Builder()
@@ -41,5 +64,9 @@ class SnapReelApp : Application(), SingletonImageLoader.Factory {
             }
             .crossfade(true)
             .build()
+    }
+
+    private companion object {
+        const val LEGACY_THUMBNAIL_DIR = "app_thumbnails"
     }
 }

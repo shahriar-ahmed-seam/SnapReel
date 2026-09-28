@@ -1,19 +1,21 @@
 package com.snapreel.app.util
 
 import android.content.Context
-import android.content.Intent
-import android.net.Uri
-import android.os.Build
-import android.provider.Settings
-import androidx.core.content.FileProvider
 import com.snapreel.app.BuildConfig
+import com.snapreel.app.util.update.UpdateFiles
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
+import org.json.JSONException
 import org.json.JSONObject
 import java.io.File
 import java.io.FileOutputStream
+import java.io.IOException
 import java.net.HttpURLConnection
+import java.net.SocketTimeoutException
 import java.net.URL
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -26,61 +28,72 @@ data class AppUpdateInfo(
     val apkSize: Long
 )
 
-@Singleton
-class UpdateManager @Inject constructor(
-    @ApplicationContext private val context: Context
-) {
-    companion object {
-        private const val GITHUB_API_LATEST_RELEASE =
-            "https://api.github.com/repos/shahriar-ahmed-seam/SnapReel/releases/latest"
+/** Why an update check failed. */
+sealed interface CheckFailure {
+    data object NoNetwork : CheckFailure
+    data object Timeout : CheckFailure
+    data object RateLimited : CheckFailure
+    data class HttpError(val code: Int) : CheckFailure
+    data object InvalidRelease : CheckFailure
+}
 
-        fun cleanupOldUpdateApks(context: Context) {
-            try {
-                val dirs = listOfNotNull(context.cacheDir, context.externalCacheDir)
-                for (dir in dirs) {
-                    dir.listFiles()?.forEach { file ->
-                        if (file.name.endsWith(".apk", ignoreCase = true) || file.name.startsWith("snapreel_update")) {
-                            file.delete()
-                        }
-                    }
-                }
-            } catch (_: Exception) {}
-        }
+/** The short reason shown in "Couldn't check for updates (reason)". */
+val CheckFailure.reasonText: String
+    get() = when (this) {
+        CheckFailure.NoNetwork -> "no internet connection"
+        CheckFailure.Timeout -> "the server didn't respond in time"
+        CheckFailure.RateLimited -> "too many checks, try again later"
+        is CheckFailure.HttpError -> "server error $code"
+        CheckFailure.InvalidRelease -> "the latest release has no app file"
     }
 
-    suspend fun checkForUpdates(): AppUpdateInfo? = withContext(Dispatchers.IO) {
-        try {
-            val url = URL(GITHUB_API_LATEST_RELEASE)
-            val connection = (url.openConnection() as HttpURLConnection).apply {
-                requestMethod = "GET"
-                connectTimeout = 8000
-                readTimeout = 8000
-                setRequestProperty("Accept", "application/vnd.github.v3+json")
-                setRequestProperty("User-Agent", "SnapReel-App")
-            }
+/** The outcome of an update check. A failure is never reported as "up to date". */
+sealed interface UpdateCheckResult {
+    data class Available(val info: AppUpdateInfo) : UpdateCheckResult
+    data object UpToDate : UpdateCheckResult
+    data class Failed(val reason: CheckFailure) : UpdateCheckResult
+}
 
-            if (connection.responseCode != HttpURLConnection.HTTP_OK) {
-                return@withContext null
-            }
+/** Pure mapping from the GitHub "latest release" response to an [UpdateCheckResult]. */
+object UpdateCheckMapping {
 
-            val responseText = connection.inputStream.bufferedReader().use { it.readText() }
-            val json = JSONObject(responseText)
+    /**
+     * - 200 with a newer tag and an APK asset → [UpdateCheckResult.Available] (same fields as before).
+     * - 200 with a tag that isn't newer → [UpdateCheckResult.UpToDate].
+     * - 200 with a newer tag but no APK asset, or a body that isn't a release → `InvalidRelease`.
+     * - 429, or 403 with `X-RateLimit-Remaining: 0` → `RateLimited`; any other non-200 → `HttpError`.
+     */
+    fun mapCheckResponse(
+        code: Int,
+        headers: Map<String, List<String>>,
+        body: String?,
+        currentVersion: String,
+    ): UpdateCheckResult {
+        if (code != HttpURLConnection.HTTP_OK) {
+            val remaining = headers.entries
+                .firstOrNull { it.key.equals("X-RateLimit-Remaining", ignoreCase = true) }
+                ?.value?.firstOrNull()?.trim()
+            return if (code == 429 || (code == HttpURLConnection.HTTP_FORBIDDEN && remaining == "0")) {
+                UpdateCheckResult.Failed(CheckFailure.RateLimited)
+            } else {
+                UpdateCheckResult.Failed(CheckFailure.HttpError(code))
+            }
+        }
+        return try {
+            val json = JSONObject(body ?: return UpdateCheckResult.Failed(CheckFailure.InvalidRelease))
 
             val tagName = json.optString("tag_name", "").removePrefix("v").trim()
             val releaseTitle = json.optString("name", "New Update Available")
             val releaseNotes = json.optString("body", "Bug fixes and performance improvements.")
-            val currentVersion = BuildConfig.VERSION_NAME.removePrefix("v").trim()
+            val current = currentVersion.removePrefix("v").trim()
 
-            if (!isNewerVersion(tagName, currentVersion)) {
-                return@withContext null
-            }
+            if (!isNewerVersion(tagName, current)) return UpdateCheckResult.UpToDate
 
-            // Find APK in assets
-            val assets = json.optJSONArray("assets") ?: return@withContext null
+            val assets = json.optJSONArray("assets") ?: return UpdateCheckResult.Failed(CheckFailure.InvalidRelease)
             var apkUrl: String? = null
             var apkSize = 0L
-
             for (i in 0 until assets.length()) {
+                // getJSONObject (not opt…) as before: a malformed asset list is an invalid release.
                 val asset = assets.getJSONObject(i)
                 val name = asset.optString("name", "")
                 if (name.endsWith(".apk", ignoreCase = true)) {
@@ -89,24 +102,32 @@ class UpdateManager @Inject constructor(
                     break
                 }
             }
+            if (apkUrl.isNullOrBlank()) return UpdateCheckResult.Failed(CheckFailure.InvalidRelease)
 
-            if (apkUrl.isNullOrBlank()) {
-                return@withContext null
-            }
-
-            return@withContext AppUpdateInfo(
-                versionName = tagName,
-                releaseTitle = releaseTitle,
-                releaseNotes = releaseNotes,
-                downloadUrl = apkUrl,
-                apkSize = apkSize
+            UpdateCheckResult.Available(
+                AppUpdateInfo(
+                    versionName = tagName,
+                    releaseTitle = releaseTitle,
+                    releaseNotes = releaseNotes,
+                    downloadUrl = apkUrl,
+                    apkSize = apkSize,
+                )
             )
-        } catch (e: Exception) {
-            e.printStackTrace()
-            return@withContext null
+        } catch (_: JSONException) {
+            UpdateCheckResult.Failed(CheckFailure.InvalidRelease)
         }
     }
 
+    /** A timeout → `Timeout`; any other I/O failure (no network, DNS, refused) → `NoNetwork`. */
+    fun mapCheckException(e: Throwable): UpdateCheckResult.Failed = UpdateCheckResult.Failed(
+        when (e) {
+            is SocketTimeoutException -> CheckFailure.Timeout
+            is JSONException -> CheckFailure.InvalidRelease
+            else -> CheckFailure.NoNetwork
+        }
+    )
+
+    /** Dot-separated numeric comparison (unchanged since the first release). */
     fun isNewerVersion(remoteVersion: String, currentVersion: String): Boolean {
         if (remoteVersion.isBlank() || currentVersion.isBlank()) return false
         val remoteParts = remoteVersion.split(".").mapNotNull { it.toIntOrNull() }
@@ -121,97 +142,129 @@ class UpdateManager @Inject constructor(
         }
         return false
     }
+}
 
-    suspend fun downloadAndInstallApk(
-        downloadUrl: String,
-        onProgress: (progress: Float, downloadedBytes: Long, totalBytes: Long) -> Unit,
-        onComplete: (File) -> Unit,
-        onError: (String) -> Unit
-    ) = withContext(Dispatchers.IO) {
+/** Where update checks and downloads come from (a seam for coordinator tests). */
+interface UpdateSource {
+    suspend fun checkForUpdates(): UpdateCheckResult
+
+    /** Downloads the release APK; progress is (downloaded, total) bytes. Returns the complete file. */
+    suspend fun download(info: AppUpdateInfo, onProgress: (Long, Long) -> Unit): File
+}
+
+@Singleton
+class UpdateManager @Inject constructor(
+    @ApplicationContext private val context: Context,
+    private val files: UpdateFiles,
+) : UpdateSource {
+    companion object {
+        private const val GITHUB_API_LATEST_RELEASE =
+            "https://api.github.com/repos/shahriar-ahmed-seam/SnapReel/releases/latest"
+
+        /** Where users download a release by hand (used when a reinstall is needed). */
+        const val RELEASES_PAGE = "https://github.com/shahriar-ahmed-seam/SnapReel/releases/latest"
+
+        private const val MAX_REDIRECTS = 5
+        private const val PROGRESS_STEP_BYTES = 256L * 1024
+    }
+
+    override suspend fun checkForUpdates(): UpdateCheckResult = withContext(Dispatchers.IO) {
+        var connection: HttpURLConnection? = null
         try {
-            var currentUrl = downloadUrl
-            var connection: HttpURLConnection
-            var redirectCount = 0
-
-            // Follow HTTP redirects (GitHub redirects to AWS S3 for release downloads)
-            while (true) {
-                val url = URL(currentUrl)
-                connection = (url.openConnection() as HttpURLConnection).apply {
-                    instanceFollowRedirects = false
-                    connectTimeout = 15000
-                    readTimeout = 15000
-                    setRequestProperty("User-Agent", "SnapReel-App")
-                }
-
-                val status = connection.responseCode
-                if (status == HttpURLConnection.HTTP_MOVED_PERM ||
-                    status == HttpURLConnection.HTTP_MOVED_TEMP ||
-                    status == HttpURLConnection.HTTP_SEE_OTHER ||
-                    status == 307 || status == 308
-                ) {
-                    currentUrl = connection.getHeaderField("Location")
-                    redirectCount++
-                    if (redirectCount > 5) throw Exception("Too many redirects")
-                    continue
-                }
-                break
+            connection = (URL(GITHUB_API_LATEST_RELEASE).openConnection() as HttpURLConnection).apply {
+                requestMethod = "GET"
+                connectTimeout = 8000
+                readTimeout = 8000
+                setRequestProperty("Accept", "application/vnd.github.v3+json")
+                setRequestProperty("User-Agent", "SnapReel-App")
             }
+            val code = connection.responseCode
+            val body = if (code == HttpURLConnection.HTTP_OK) {
+                connection.inputStream.bufferedReader().use { it.readText() }
+            } else {
+                null
+            }
+            val headers = connection.headerFields
+                .filterKeys { it != null }
+                .mapKeys { it.key!! }
+            UpdateCheckMapping.mapCheckResponse(code, headers, body, BuildConfig.VERSION_NAME)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            UpdateCheckMapping.mapCheckException(e)
+        } finally {
+            connection?.disconnect()
+        }
+    }
 
-            val totalBytes = connection.contentLength.toLong()
-            val destinationDir = context.externalCacheDir ?: context.cacheDir
-            val apkFile = File(destinationDir, "snapreel_update.apk")
-            if (apkFile.exists()) apkFile.delete()
+    fun isNewerVersion(remoteVersion: String, currentVersion: String): Boolean =
+        UpdateCheckMapping.isNewerVersion(remoteVersion, currentVersion)
 
-            connection.inputStream.use { input ->
-                FileOutputStream(apkFile).use { output ->
-                    val buffer = ByteArray(8192)
-                    var bytesRead: Int
-                    var totalDownloaded = 0L
+    /**
+     * Streams the APK to `cacheDir/updates/snapreel-<version>.apk.part` (following GitHub's
+     * redirects), then renames it to `.apk` once complete. The `.part` is deleted on any failure
+     * or cancellation, so a partial file is never mistaken for an update.
+     */
+    override suspend fun download(info: AppUpdateInfo, onProgress: (Long, Long) -> Unit): File =
+        withContext(Dispatchers.IO) {
+            val part = files.partFileFor(info.versionName)
+            val apk = files.apkFileFor(info.versionName)
+            files.dir.mkdirs()
+            part.delete()
+            apk.delete()
+            var connection: HttpURLConnection? = null
+            try {
+                var currentUrl = info.downloadUrl
+                var redirects = 0
+                while (true) {
+                    connection = (URL(currentUrl).openConnection() as HttpURLConnection).apply {
+                        instanceFollowRedirects = false
+                        connectTimeout = 15000
+                        readTimeout = 15000
+                        setRequestProperty("User-Agent", "SnapReel-App")
+                    }
+                    val status = connection.responseCode
+                    if (status in listOf(301, 302, 303, 307, 308)) {
+                        currentUrl = connection.getHeaderField("Location")
+                            ?: throw IOException("Redirect without a location")
+                        connection.disconnect()
+                        if (++redirects > MAX_REDIRECTS) throw IOException("Too many redirects")
+                        continue
+                    }
+                    if (status != HttpURLConnection.HTTP_OK) throw IOException("Download failed (HTTP $status)")
+                    break
+                }
 
-                    while (input.read(buffer).also { bytesRead = it } != -1) {
-                        output.write(buffer, 0, bytesRead)
-                        totalDownloaded += bytesRead
-                        if (totalBytes > 0) {
-                            val progress = (totalDownloaded.toFloat() / totalBytes.toFloat()).coerceIn(0f, 1f)
-                            withContext(Dispatchers.Main) {
-                                onProgress(progress, totalDownloaded, totalBytes)
+                val conn = connection!!
+                val total = conn.contentLengthLong.takeIf { it > 0 } ?: info.apkSize
+                onProgress(0L, total)
+                conn.inputStream.use { input ->
+                    FileOutputStream(part).use { output ->
+                        val buffer = ByteArray(64 * 1024)
+                        var downloaded = 0L
+                        var lastReported = 0L
+                        while (true) {
+                            currentCoroutineContext().ensureActive()
+                            val read = input.read(buffer)
+                            if (read == -1) break
+                            output.write(buffer, 0, read)
+                            downloaded += read
+                            if (downloaded - lastReported >= PROGRESS_STEP_BYTES) {
+                                lastReported = downloaded
+                                onProgress(downloaded, total)
                             }
                         }
+                        output.fd.sync()
+                        onProgress(downloaded, total)
                     }
                 }
-            }
-
-            withContext(Dispatchers.Main) {
-                onComplete(apkFile)
-                installApk(apkFile)
-            }
-        } catch (e: Exception) {
-            e.printStackTrace()
-            withContext(Dispatchers.Main) {
-                onError(e.message ?: "Failed to download update")
+                if (!part.renameTo(apk)) throw IOException("Couldn't save the update")
+                apk
+            } catch (e: Throwable) {
+                part.delete()
+                throw e
+            } finally {
+                connection?.disconnect()
             }
         }
-    }
-
-    fun installApk(apkFile: File) {
-        try {
-            if (!apkFile.exists()) return
-
-            val apkUri: Uri = FileProvider.getUriForFile(
-                context,
-                "${context.packageName}.fileprovider",
-                apkFile
-            )
-
-            val intent = Intent(Intent.ACTION_VIEW).apply {
-                setDataAndType(apkUri, "application/vnd.android.package-archive")
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            }
-
-            context.startActivity(intent)
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
-    }
 }

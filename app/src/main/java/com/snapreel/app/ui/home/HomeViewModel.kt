@@ -5,8 +5,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.snapreel.app.data.preferences.AppPreferences
 import com.snapreel.app.data.repository.MediaRepository
-import com.snapreel.app.util.AppUpdateInfo
-import com.snapreel.app.util.UpdateManager
+import com.snapreel.app.util.update.UpdateCoordinator
+import com.snapreel.app.util.update.UpdateUiState
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
@@ -22,20 +22,17 @@ data class HomeUiState(
     val recentFolders: List<RecentFolder> = emptyList(),
     val isLoading: Boolean = false,
     val scanningFolderName: String? = null,
-    val availableUpdate: AppUpdateInfo? = null,
-    val isDownloadingUpdate: Boolean = false,
-    val updateDownloadProgress: Float = 0f,
-    val downloadedBytes: Long = 0L,
-    val totalBytes: Long = 0L,
-    val updateError: String? = null
 )
 
 @HiltViewModel
 class HomeViewModel @Inject constructor(
     private val appPreferences: AppPreferences,
     private val mediaRepository: MediaRepository,
-    private val updateManager: UpdateManager
+    val updateCoordinator: UpdateCoordinator
 ) : ViewModel() {
+
+    /** The update dialog's state (shared with Settings; the coordinator lives in the app scope). */
+    val updateState: StateFlow<UpdateUiState> = updateCoordinator.state
 
     private val _uiState = MutableStateFlow(HomeUiState())
     val uiState: StateFlow<HomeUiState> = _uiState.asStateFlow()
@@ -55,51 +52,17 @@ class HomeViewModel @Inject constructor(
             }
         }
 
-        checkForUpdates()
+        // Once per process: offer a verified download kept across a restart, else a silent check.
+        updateCoordinator.restorePendingOrCheck()
     }
 
-    fun checkForUpdates() {
-        viewModelScope.launch {
-            val update = updateManager.checkForUpdates()
-            if (update != null) {
-                _uiState.update { it.copy(availableUpdate = update, updateError = null) }
-            }
-        }
-    }
+    /** Persists access to a picked folder; `false` if the provider doesn't offer a persistable grant. */
+    fun takeAccess(treeUri: Uri): Boolean = mediaRepository.takePersistableAccess(treeUri)
 
-    fun startUpdate() {
-        val update = _uiState.value.availableUpdate ?: return
-        _uiState.update { it.copy(isDownloadingUpdate = true, updateError = null, updateDownloadProgress = 0f) }
-        viewModelScope.launch {
-            updateManager.downloadAndInstallApk(
-                downloadUrl = update.downloadUrl,
-                onProgress = { progress, downloaded, total ->
-                    _uiState.update {
-                        it.copy(
-                            updateDownloadProgress = progress,
-                            downloadedBytes = downloaded,
-                            totalBytes = total
-                        )
-                    }
-                },
-                onComplete = {
-                    _uiState.update { it.copy(isDownloadingUpdate = false, availableUpdate = null) }
-                },
-                onError = { errorMsg ->
-                    _uiState.update { it.copy(isDownloadingUpdate = false, updateError = errorMsg) }
-                }
-            )
-        }
-    }
-
-    fun dismissUpdateDialog() {
-        _uiState.update { it.copy(availableUpdate = null, updateError = null) }
-    }
-
+    /** Adds the picked folder to Recents (its name is looked up off the main thread). */
     fun onFolderPicked(treeUri: Uri) {
         viewModelScope.launch {
-            val displayName = mediaRepository.getFolderDisplayName(treeUri)
-            appPreferences.addRecentFolder(treeUri.toString(), displayName)
+            mediaRepository.addPickedFolder(treeUri)
         }
     }
 

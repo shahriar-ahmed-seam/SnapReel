@@ -25,6 +25,9 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.ui.platform.LocalLifecycleOwner
+import com.snapreel.app.data.repository.FolderLoadError
+import com.snapreel.app.data.repository.displayMessage
+import com.snapreel.app.ui.common.FolderAccessLost
 import com.snapreel.app.ui.theme.*
 import kotlinx.coroutines.launch
 
@@ -33,22 +36,39 @@ import kotlinx.coroutines.launch
 fun ReelsViewerScreen(
     folderUri: Uri,
     startIndex: Int = 0,
+    fresh: Boolean = false,
     onBack: (Int) -> Unit,
+    onOpenOtherFolder: (Uri) -> Unit = {},
     viewModel: ReelsViewerViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val view = LocalView.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val scope = rememberCoroutineScope()
-    
+    val currentOnOpenOtherFolder by rememberUpdatedState(onOpenOtherFolder)
+
+    LaunchedEffect(viewModel) {
+        viewModel.events.collect { event ->
+            when (event) {
+                is FolderEvent.OpenOtherFolder -> currentOnOpenOtherFolder(event.uri)
+            }
+        }
+    }
+
+    // Leaving: pause and free the neighbors first, then pop.
+    val leave: () -> Unit = {
+        viewModel.onLeaving()
+        onBack(uiState.currentIndex)
+    }
+
     // Intercept system back button / back gesture
     BackHandler {
-        onBack(uiState.currentIndex)
+        leave()
     }
 
     // Load media on first composition
     LaunchedEffect(folderUri, startIndex) {
-        viewModel.loadMedia(folderUri, startIndex)
+        viewModel.loadMedia(folderUri, startIndex, fresh)
     }
 
     // Lifecycle-aware pause and Screen Keep-On
@@ -56,8 +76,11 @@ fun ReelsViewerScreen(
         view.keepScreenOn = true
 
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_PAUSE) {
-                viewModel.onAppPaused()
+            when (event) {
+                Lifecycle.Event.ON_PAUSE -> viewModel.onAppPaused()
+                Lifecycle.Event.ON_STOP -> viewModel.onAppStopped()
+                Lifecycle.Event.ON_START -> viewModel.onAppStarted()
+                else -> Unit
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -76,8 +99,10 @@ fun ReelsViewerScreen(
             LoadingContent()
         } else if (uiState.error != null) {
             ErrorContent(
-                error = uiState.error ?: "Unknown error",
-                onBack = { onBack(uiState.currentIndex) }
+                error = uiState.error!!,
+                folderUri = folderUri,
+                onRePicked = { picked -> viewModel.onFolderRePicked(folderUri, picked, startIndex) },
+                onBack = leave
             )
         } else if (uiState.mediaItems.isNotEmpty()) {
             ReelsContent(
@@ -100,7 +125,7 @@ fun ReelsViewerScreen(
                 .align(Alignment.TopStart)
         ) {
             IconButton(
-                onClick = { onBack(uiState.currentIndex) }
+                onClick = leave
             ) {
                 Icon(
                     imageVector = Icons.AutoMirrored.Filled.ArrowBack,
@@ -136,7 +161,16 @@ private fun LoadingContent() {
 }
 
 @Composable
-private fun ErrorContent(error: String, onBack: () -> Unit) {
+private fun ErrorContent(
+    error: FolderLoadError,
+    folderUri: Uri,
+    onRePicked: (Uri) -> Unit,
+    onBack: () -> Unit
+) {
+    if (error is FolderLoadError.AccessLost) {
+        FolderAccessLost(folderUri = folderUri, onRePicked = onRePicked, onBack = onBack)
+        return
+    }
     Box(
         modifier = Modifier.fillMaxSize(),
         contentAlignment = Alignment.Center
@@ -150,7 +184,7 @@ private fun ErrorContent(error: String, onBack: () -> Unit) {
             )
             Spacer(modifier = Modifier.height(16.dp))
             Text(
-                text = error,
+                text = error.displayMessage,
                 color = TextSecondary,
                 fontSize = 14.sp
             )
@@ -174,11 +208,21 @@ private fun ReelsContent(
         initialPage = uiState.currentIndex,
         pageCount = { uiState.mediaItems.size }
     )
+    val pages by viewModel.pages.collectAsState()
+    val hapticsEnabled by rememberUpdatedState(uiState.settings.hapticFeedback)
+    var lastSettledUri by remember { mutableStateOf<Uri?>(null) }
 
     // React to page changes
     LaunchedEffect(pagerState.settledPage) {
-        viewModel.onPageSettled(pagerState.settledPage)
-        viewModel.saveLastViewedIndex(folderUri, pagerState.settledPage)
+        val page = pagerState.settledPage
+        val settledUri = uiState.mediaItems.getOrNull(page)?.uri
+        // One tick per settle on a different item (never on the initial settle).
+        if (settledUri != null && shouldTick(lastSettledUri, settledUri, hapticsEnabled)) {
+            view.performHapticFeedback(hapticTickConstant())
+        }
+        lastSettledUri = settledUri
+        viewModel.onPageSettled(page)
+        viewModel.saveLastViewed(folderUri, page)
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -194,7 +238,8 @@ private fun ReelsContent(
             if (mediaItem.isVideo) {
                 VideoPage(
                     mediaItem = mediaItem,
-                    playerManager = viewModel.playerManager,
+                    pageState = pages[mediaItem.uri],
+                    onRetry = { viewModel.retry() },
                     isCurrentPage = isCurrentPage,
                     isPlaying = uiState.isPlaying,
                     isMuted = uiState.isMuted,
@@ -207,17 +252,8 @@ private fun ReelsContent(
                     onDoubleTapRight = { viewModel.seekForward() },
                     onMuteToggle = { viewModel.toggleMute() },
                     onSeekTo = { pos -> viewModel.seekTo(pos) },
-                    onSliderDragStart = {
-                        // Pause while dragging so seek is smooth
-                        viewModel.playerManager.pause()
-                    },
-                    onSliderDragEnd = { seekPos ->
-                        viewModel.seekTo(seekPos)
-                        // Resume if was playing before drag
-                        if (uiState.isPlaying) {
-                            viewModel.playerManager.resume()
-                        }
-                    },
+                    onSliderDragStart = { viewModel.onSliderDragStart() },
+                    onSliderDragEnd = { seekPos -> viewModel.onSliderDragEnd(seekPos) },
                     onControlsTimeout = { viewModel.onControlsTimeout() }
                 )
             } else {
