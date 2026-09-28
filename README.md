@@ -103,7 +103,7 @@ Every release must be signed with the same dedicated release key. Android only i
    ```bash
    apksigner verify --print-certs app/build/outputs/apk/release/app-release.apk
    ```
-   Release certificate SHA-256: `<fill in after the first signed release>`
+   Release certificate SHA-256 (since 1.3.0): `61ad7d7ee4fe2744f4c4112d35b267cedbfc1909cde96028b4d070cf585b9e49`
 5. **Release notes for 1.3.0**, the first release signed with the new key. Older versions show these notes in their update dialog, so include this text:
    > **Important:** this version is signed with a new key. If you have SnapReel 1.2.6 or earlier, the in-app update will fail with "App not installed". Uninstall SnapReel, then install this APK. You only need to do this once. Future updates install normally from inside the app. You may need to pick your folders again.
 
