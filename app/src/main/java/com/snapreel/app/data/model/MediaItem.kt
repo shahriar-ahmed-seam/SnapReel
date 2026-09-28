@@ -8,7 +8,9 @@ data class MediaItem(
     val mimeType: String,
     val size: Long,
     val dateModified: Long,
-    val isVideo: Boolean
+    val isVideo: Boolean,
+    /** The provider can serve a thumbnail for this document (`FLAG_SUPPORTS_THUMBNAIL`). */
+    val supportsThumbnail: Boolean = false
 ) {
     companion object {
         val VIDEO_EXTENSIONS = setOf("mp4", "mkv", "webm", "3gp", "mov", "avi", "m4v", "ts", "flv")

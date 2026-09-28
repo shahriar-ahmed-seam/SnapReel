@@ -30,6 +30,11 @@
             </intent-filter>
         </activity>
 
+        <!-- Receives the PackageInstaller session result for in-app updates. -->
+        <receiver
+            android:name=".util.update.UpdateInstallReceiver"
+            android:exported="false" />
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"

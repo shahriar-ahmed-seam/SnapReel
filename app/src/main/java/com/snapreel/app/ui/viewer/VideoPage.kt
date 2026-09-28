@@ -22,6 +22,10 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.SemanticsPropertyKey
+import androidx.compose.ui.semantics.SemanticsPropertyReceiver
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -29,18 +33,32 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.PlayerView
-import coil3.request.crossfade
 import com.snapreel.app.data.model.MediaItem
 import com.snapreel.app.data.preferences.AspectRatioMode
-import com.snapreel.app.player.ReelPlayerManager
+import com.snapreel.app.player.PageState
 import com.snapreel.app.ui.theme.*
+import com.snapreel.app.util.thumbnail.videoThumbnailRequest
 import kotlinx.coroutines.delay
+
+/** Test tags and semantics for [VideoPage] (read by `VideoPageTest`). */
+object VideoPageTags {
+    const val ROOT = "video_page"
+    const val PREVIEW = "video_page_preview"
+    const val FAILURE = "video_page_failure"
+    const val RETRY = "video_page_retry"
+
+    /** True when the page fills the screen (crop/zoom), false when it fits (letterboxed). */
+    val Fill = SemanticsPropertyKey<Boolean>("VideoFill")
+}
+
+private var SemanticsPropertyReceiver.videoFill by VideoPageTags.Fill
 
 @OptIn(UnstableApi::class)
 @Composable
 fun VideoPage(
     mediaItem: MediaItem,
-    playerManager: ReelPlayerManager,
+    pageState: PageState?,
+    onRetry: () -> Unit,
     isCurrentPage: Boolean,
     isPlaying: Boolean,
     isMuted: Boolean,
@@ -73,32 +91,23 @@ fun VideoPage(
     val totalTime = remember { mutableLongStateOf(0L) }
 
     // Smart Aspect Ratio & Manual Quick-Toggle State
-    var isLandscape by remember(mediaItem.uri) { mutableStateOf(false) }
     var manualZoomOverride by remember(mediaItem.uri) { mutableStateOf<Boolean?>(null) }
-    var isFirstFrameRendered by remember(mediaItem.uri) { mutableStateOf(false) }
+    // Orientation of the cached preview, used until this page's own player reports a video size.
+    var previewLandscape by remember(mediaItem.uri) { mutableStateOf<Boolean?>(null) }
+    val player = pageState?.player
+    val failure = pageState?.failure
+    val isFirstFrameRendered = pageState?.firstFrameRendered == true
+    // This page's own video size, then the preview's intrinsic size, then unknown (fill).
+    val isLandscape = pageState?.videoSize
+        ?.takeIf { it.width > 0 && it.height > 0 }
+        ?.let { it.width > it.height }
+        ?: previewLandscape
+        ?: false
 
-    // Listen to video resolution and first frame rendering from ExoPlayer
-    DisposableEffect(isCurrentPage, playerManager.player) {
-        val listener = object : androidx.media3.common.Player.Listener {
-            override fun onVideoSizeChanged(videoSize: androidx.media3.common.VideoSize) {
-                if (videoSize.width > 0 && videoSize.height > 0) {
-                    isLandscape = videoSize.width > videoSize.height
-                }
-            }
-            override fun onRenderedFirstFrame() {
-                if (isCurrentPage) {
-                    isFirstFrameRendered = true
-                }
-            }
-        }
-        playerManager.player.addListener(listener)
-        val cur = playerManager.player.videoSize
-        if (cur.width > 0 && cur.height > 0) {
-            isLandscape = cur.width > cur.height
-        }
-        onDispose {
-            playerManager.player.removeListener(listener)
-        }
+    // Instant preview and blurred backdrop: the grid's cached thumbnail (memory or disk), never a decode.
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val previewRequest = remember(mediaItem.uri, mediaItem.size, mediaItem.dateModified) {
+        videoThumbnailRequest(context, mediaItem, cacheOnly = true, crossfade = false)
     }
 
     // Determine final zoom state:
@@ -118,11 +127,11 @@ fun VideoPage(
         }
     }
 
-    // Update progress bar from player position
-    LaunchedEffect(isCurrentPage, isDraggingSlider) {
-        if (isCurrentPage && !isDraggingSlider) {
+    // Update progress bar from this page's player position
+    LaunchedEffect(isCurrentPage, isDraggingSlider, player) {
+        if (isCurrentPage && !isDraggingSlider && player != null) {
             while (true) {
-                val p = playerManager.player
+                val p = player
                 currentTime.longValue = p.currentPosition
                 totalTime.longValue = p.duration.coerceAtLeast(0)
                 if (totalTime.longValue > 0) {
@@ -137,6 +146,8 @@ fun VideoPage(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black)
+            .testTag(VideoPageTags.ROOT)
+            .semantics { videoFill = shouldZoom }
             .pointerInput(Unit) {
                 detectTapGestures(
                     onTap = {
@@ -160,10 +171,7 @@ fun VideoPage(
         // 1. Frosted Blurred Backdrop for Landscape/Fitted Videos
         if (!shouldZoom) {
             coil3.compose.AsyncImage(
-                model = coil3.request.ImageRequest.Builder(androidx.compose.ui.platform.LocalContext.current)
-                    .data(mediaItem.uri)
-                    .crossfade(false)
-                    .build(),
+                model = previewRequest,
                 contentDescription = null,
                 contentScale = androidx.compose.ui.layout.ContentScale.Crop,
                 modifier = Modifier
@@ -178,8 +186,9 @@ fun VideoPage(
             )
         }
 
-        // 2. Hardware-Accelerated Video Player
-        if (isCurrentPage) {
+        // 2. Hardware-Accelerated Video Player: every composed video page has its own view,
+        // bound to its pooled player, so a prepared neighbor already shows its first frame.
+        run {
             AndroidView(
                 factory = { context ->
                     PlayerView(context).apply {
@@ -198,8 +207,8 @@ fun VideoPage(
                     if (playerView.resizeMode != targetResizeMode) {
                         playerView.resizeMode = targetResizeMode
                     }
-                    if (playerView.player != playerManager.player) {
-                        playerView.player = playerManager.player
+                    if (playerView.player != player) {
+                        playerView.player = player
                     }
                 },
                 onRelease = { playerView ->
@@ -216,19 +225,34 @@ fun VideoPage(
             exit = fadeOut(tween(200))
         ) {
             coil3.compose.AsyncImage(
-                model = coil3.request.ImageRequest.Builder(androidx.compose.ui.platform.LocalContext.current)
-                    .data(mediaItem.uri)
-                    .crossfade(false)
-                    .build(),
+                model = previewRequest,
                 contentDescription = mediaItem.name,
                 contentScale = if (shouldZoom) androidx.compose.ui.layout.ContentScale.Crop else androidx.compose.ui.layout.ContentScale.Fit,
-                modifier = Modifier.fillMaxSize()
+                onSuccess = { state ->
+                    val size = state.painter.intrinsicSize
+                    if (size.width > 0f && size.height > 0f) previewLandscape = size.width > size.height
+                },
+                modifier = Modifier
+                    .fillMaxSize()
+                    .testTag(VideoPageTags.PREVIEW)
+            )
+        }
+
+        // Failure overlay: message + Retry. Swipes pass through to the pager.
+        if (failure != null) {
+            PlaybackFailureOverlay(
+                message = failure.message,
+                onRetry = onRetry,
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .testTag(VideoPageTags.FAILURE),
+                retryModifier = Modifier.testTag(VideoPageTags.RETRY)
             )
         }
 
         // Center play icon — visible when video is paused (State C)
         AnimatedVisibility(
-            visible = !isPlaying,
+            visible = !isPlaying && failure == null,
             enter = scaleIn(initialScale = 0.5f, animationSpec = tween(200)) + fadeIn(tween(200)),
             exit = fadeOut(tween(300)),
             modifier = Modifier.align(Alignment.Center)

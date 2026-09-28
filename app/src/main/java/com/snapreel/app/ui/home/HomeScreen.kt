@@ -1,7 +1,8 @@
 package com.snapreel.app.ui.home
 
-import android.content.Intent
+import android.content.Context
 import android.net.Uri
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
@@ -52,11 +53,13 @@ fun HomeScreen(
         contract = ActivityResultContracts.OpenDocumentTree()
     ) { uri: Uri? ->
         uri?.let {
-            // Take persistent permission
-            val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION
-            context.contentResolver.takePersistableUriPermission(it, flags)
-            viewModel.onFolderPicked(it)
-            onFolderSelected(it)
+            handlePickedFolder(
+                context = context,
+                uri = it,
+                takeAccess = viewModel::takeAccess,
+                onFolderPicked = viewModel::onFolderPicked,
+                onFolderSelected = onFolderSelected
+            )
         }
     }
 
@@ -236,20 +239,30 @@ fun HomeScreen(
             }
         }
 
-        // In-App Auto-Update Dialog
-        if (uiState.availableUpdate != null) {
-            com.snapreel.app.ui.common.UpdateDialog(
-                updateInfo = uiState.availableUpdate!!,
-                isDownloading = uiState.isDownloadingUpdate,
-                downloadProgress = uiState.updateDownloadProgress,
-                downloadedBytes = uiState.downloadedBytes,
-                totalBytes = uiState.totalBytes,
-                error = uiState.updateError,
-                onUpdateClick = { viewModel.startUpdate() },
-                onDismiss = { viewModel.dismissUpdateDialog() }
-            )
-        }
+        // In-app update dialog (shown only when an update is offered or in progress)
+        val updateState by viewModel.updateState.collectAsState()
+        com.snapreel.app.ui.common.UpdateDialogHost(state = updateState, coordinator = viewModel.updateCoordinator)
     }
+}
+
+const val ACCESS_MAY_NOT_PERSIST_MESSAGE = "SnapReel can open this folder now, but may lose access after a restart."
+
+/**
+ * The folder picker's result: persist access (warning with a Toast if the provider refuses),
+ * then add the folder to Recents and open it, as before. Navigation stays synchronous.
+ */
+internal fun handlePickedFolder(
+    context: Context,
+    uri: Uri,
+    takeAccess: (Uri) -> Boolean,
+    onFolderPicked: (Uri) -> Unit,
+    onFolderSelected: (Uri) -> Unit,
+) {
+    if (!takeAccess(uri)) {
+        Toast.makeText(context, ACCESS_MAY_NOT_PERSIST_MESSAGE, Toast.LENGTH_LONG).show()
+    }
+    onFolderPicked(uri)
+    onFolderSelected(uri)
 }
 
 @Composable

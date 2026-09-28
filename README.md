@@ -67,10 +67,45 @@ git clone https://github.com/yourusername/snapreel.git
 # Navigate to root directory
 cd snapreel
 
-# Build release APK
+# Build a debug APK (no signing setup needed)
+./gradlew assembleDebug
+
+# Run the unit tests
+./gradlew :app:testDebugUnitTest
+
+# Build the release APK (needs the release key, see Releasing below)
 ./gradlew assembleRelease
 ```
-The output APK will be generated at `app/build/outputs/apk/release/app-release.apk`.
+The release APK is generated at `app/build/outputs/apk/release/app-release.apk`.
+
+---
+
+## 🔑 Releasing
+
+Every release must be signed with the same dedicated release key. Android only installs an update over an app signed with the same key, so a different key breaks in-app updates. The release build fails with "Release signing is not configured" if the key is missing. It never falls back to the debug key.
+
+1. **Create the key once.** keytool asks for the password, so it never goes into a file, a chat or the repo. For a PKCS12 keystore the key password is the same as the store password.
+   ```bash
+   mkdir -p ~/keystores
+   keytool -genkeypair -v -storetype PKCS12 -keystore ~/keystores/snapreel-release.p12 \
+     -alias snapreel -keyalg RSA -keysize 4096 -validity 10000
+   ```
+2. **Point the build at it.** Create `keystore.properties` at the repo root. It is git-ignored, never commit it:
+   ```properties
+   storeFile=~/keystores/snapreel-release.p12
+   storePassword=<your password>
+   keyAlias=snapreel
+   keyPassword=<your password>
+   ```
+   Alternatively, set `SNAPREEL_KEYSTORE_FILE`, `SNAPREEL_KEYSTORE_PASSWORD`, `SNAPREEL_KEY_ALIAS` and `SNAPREEL_KEY_PASSWORD`. Environment variables take precedence over the file.
+3. **Back it up.** Keep the keystore file and its password in two separate safe places, such as a password manager and an offline drive. Never regenerate it. If the key is lost, no future release can update existing installs.
+4. **Verify each release** before publishing. The release certificate's SHA-256 digest must stay the same for every release:
+   ```bash
+   apksigner verify --print-certs app/build/outputs/apk/release/app-release.apk
+   ```
+   Release certificate SHA-256: `<fill in after the first signed release>`
+5. **Release notes for 1.3.0**, the first release signed with the new key. Older versions show these notes in their update dialog, so include this text:
+   > **Important:** this version is signed with a new key. If you have SnapReel 1.2.6 or earlier, the in-app update will fail with "App not installed". Uninstall SnapReel, then install this APK. You only need to do this once. Future updates install normally from inside the app. You may need to pick your folders again.
 
 ---
 

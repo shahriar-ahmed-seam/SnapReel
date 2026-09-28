@@ -6,6 +6,8 @@ import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.navigation.NavBackStackEntry
+import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -19,19 +21,136 @@ import com.snapreel.app.ui.viewer.landscape.LandscapeVideoViewerScreen
 
 object Routes {
     const val HOME = "home"
-    const val VIEWER = "viewer/{folderUri}/{startIndex}"
-    const val LANDSCAPE_VIEWER = "landscape_viewer/{folderUri}/{startIndex}"
+    const val VIEWER = "viewer/{folderUri}/{startIndex}?fresh={fresh}"
+    const val LANDSCAPE_VIEWER = "landscape_viewer/{folderUri}/{startIndex}?fresh={fresh}"
     const val GRID = "grid/{folderUri}"
     const val SETTINGS = "settings"
 
-    fun viewer(folderUri: String, startIndex: Int = 0) = "viewer/${Uri.encode(folderUri)}/$startIndex"
-    fun landscapeViewer(folderUri: String, startIndex: Int = 0) = "landscape_viewer/${Uri.encode(folderUri)}/$startIndex"
+    /**
+     * [fresh] = true rescans the folder and resolves the start item by its saved URI (Home's play
+     * button). false reads the snapshot the grid just scanned (grid taps).
+     */
+    fun viewer(folderUri: String, startIndex: Int = 0, fresh: Boolean = false) =
+        "viewer/${Uri.encode(folderUri)}/$startIndex?fresh=$fresh"
+    fun landscapeViewer(folderUri: String, startIndex: Int = 0, fresh: Boolean = false) =
+        "landscape_viewer/${Uri.encode(folderUri)}/$startIndex?fresh=$fresh"
     fun grid(folderUri: String) = "grid/${Uri.encode(folderUri)}"
 }
 
+/** The screen composables the graph hosts. A test seam: tests swap in lightweight screens. */
+interface SnapReelScreens {
+    @Composable
+    fun Home(
+        onFolderSelected: (Uri) -> Unit,
+        onPlaySelected: (Uri, Int, Boolean) -> Unit,
+        onSettingsClick: () -> Unit,
+    )
+
+    @Composable
+    fun Grid(
+        folderUri: Uri,
+        returnedIndex: Int?,
+        onBack: () -> Unit,
+        onMediaClick: (Int, Boolean) -> Unit,
+        onOpenOtherFolder: (Uri) -> Unit,
+    )
+
+    @Composable
+    fun Viewer(folderUri: Uri, startIndex: Int, fresh: Boolean, onBack: (Int) -> Unit, onOpenOtherFolder: (Uri) -> Unit)
+
+    @Composable
+    fun LandscapeViewer(folderUri: Uri, startIndex: Int, fresh: Boolean, onBack: (Int) -> Unit, onOpenOtherFolder: (Uri) -> Unit)
+
+    @Composable
+    fun Settings(onBack: () -> Unit)
+}
+
+/** The app's real screens. */
+object AppScreens : SnapReelScreens {
+    @Composable
+    override fun Home(
+        onFolderSelected: (Uri) -> Unit,
+        onPlaySelected: (Uri, Int, Boolean) -> Unit,
+        onSettingsClick: () -> Unit,
+    ) = HomeScreen(onFolderSelected = onFolderSelected, onPlaySelected = onPlaySelected, onSettingsClick = onSettingsClick)
+
+    @Composable
+    override fun Grid(
+        folderUri: Uri,
+        returnedIndex: Int?,
+        onBack: () -> Unit,
+        onMediaClick: (Int, Boolean) -> Unit,
+        onOpenOtherFolder: (Uri) -> Unit,
+    ) = FolderMediaGridScreen(
+        folderUri = folderUri,
+        returnedIndex = returnedIndex,
+        onBack = onBack,
+        onMediaClick = onMediaClick,
+        onOpenOtherFolder = onOpenOtherFolder,
+    )
+
+    @Composable
+    override fun Viewer(folderUri: Uri, startIndex: Int, fresh: Boolean, onBack: (Int) -> Unit, onOpenOtherFolder: (Uri) -> Unit) =
+        ReelsViewerScreen(
+            folderUri = folderUri,
+            startIndex = startIndex,
+            fresh = fresh,
+            onBack = onBack,
+            onOpenOtherFolder = onOpenOtherFolder,
+        )
+
+    @Composable
+    override fun LandscapeViewer(folderUri: Uri, startIndex: Int, fresh: Boolean, onBack: (Int) -> Unit, onOpenOtherFolder: (Uri) -> Unit) =
+        LandscapeVideoViewerScreen(
+            folderUri = folderUri,
+            startIndex = startIndex,
+            fresh = fresh,
+            onBack = onBack,
+            onOpenOtherFolder = onOpenOtherFolder,
+        )
+
+    @Composable
+    override fun Settings(onBack: () -> Unit) = SettingsScreen(onBack = onBack)
+}
+
+private const val LAST_VIEWED_INDEX = "lastViewedIndex"
+
+private fun NavBackStackEntry.folderUriArg(): Uri? = arguments?.getString("folderUri")?.let { Uri.parse(it) }
+
+/**
+ * Every navigate/pop goes through the guard with the composable's own back-stack entry, so a burst
+ * of taps before the next frame acts once, and Home is never popped.
+ *
+ * @param navController a test seam (`TestNavHostController`); the app uses the default.
+ * @param screens a test seam; the app uses [AppScreens].
+ */
 @Composable
-fun SnapReelNavGraph() {
-    val navController = rememberNavController()
+fun SnapReelNavGraph(
+    navController: NavHostController = rememberNavController(),
+    screens: SnapReelScreens = AppScreens,
+) {
+    // Re-pick of a different folder: open its grid directly above Home.
+    fun openOtherFolder(from: NavBackStackEntry, uri: Uri) {
+        navController.navigateFrom(from, Routes.grid(uri.toString())) {
+            popUpTo(Routes.HOME)
+        }
+    }
+
+    // A viewer's back: the returned index goes to the entry below, only if the pop will happen.
+    fun viewerBack(from: NavBackStackEntry, currentIndex: Int) {
+        navController.popFrom(from) { previous ->
+            previous.savedStateHandle[LAST_VIEWED_INDEX] = currentIndex
+        }
+    }
+
+    val viewerArguments = listOf(
+        navArgument("folderUri") { type = NavType.StringType },
+        navArgument("startIndex") { type = NavType.IntType },
+        navArgument("fresh") {
+            type = NavType.BoolType
+            defaultValue = false
+        },
+    )
 
     NavHost(
         navController = navController,
@@ -41,20 +160,21 @@ fun SnapReelNavGraph() {
         popEnterTransition = { fadeIn(animationSpec = tween(300)) + slideInHorizontally(initialOffsetX = { -it / 4 }) },
         popExitTransition = { fadeOut(animationSpec = tween(300)) + slideOutHorizontally(targetOffsetX = { it / 4 }) }
     ) {
-        composable(Routes.HOME) {
-            HomeScreen(
+        composable(Routes.HOME) { entry ->
+            screens.Home(
                 onFolderSelected = { uri ->
-                    navController.navigate(Routes.grid(uri.toString()))
+                    navController.navigateFrom(entry, Routes.grid(uri.toString()))
                 },
                 onPlaySelected = { uri, index, isLandscape ->
-                    if (isLandscape) {
-                        navController.navigate(Routes.landscapeViewer(uri.toString(), index))
+                    val route = if (isLandscape) {
+                        Routes.landscapeViewer(uri.toString(), index, fresh = true)
                     } else {
-                        navController.navigate(Routes.viewer(uri.toString(), index))
+                        Routes.viewer(uri.toString(), index, fresh = true)
                     }
+                    navController.navigateFrom(entry, route)
                 },
                 onSettingsClick = {
-                    navController.navigate(Routes.SETTINGS)
+                    navController.navigateFrom(entry, Routes.SETTINGS)
                 }
             )
         }
@@ -62,82 +182,68 @@ fun SnapReelNavGraph() {
         composable(
             route = Routes.GRID,
             arguments = listOf(navArgument("folderUri") { type = NavType.StringType })
-        ) { backStackEntry ->
-            val folderUri = backStackEntry.arguments?.getString("folderUri")?.let {
-                Uri.parse(it)
-            }
+        ) { entry ->
+            val folderUri = entry.folderUriArg()
             // Read the saved index reactively if we just returned from Viewer
-            val lastViewedIndex by backStackEntry.savedStateHandle
-                .getStateFlow<Int?>("lastViewedIndex", null)
+            val lastViewedIndex by entry.savedStateHandle
+                .getStateFlow<Int?>(LAST_VIEWED_INDEX, null)
                 .collectAsState()
 
             if (folderUri != null) {
-                FolderMediaGridScreen(
+                screens.Grid(
                     folderUri = folderUri,
                     returnedIndex = lastViewedIndex,
-                    onBack = { navController.popBackStack() },
+                    onBack = { navController.popFrom(entry) },
                     onMediaClick = { index, isLandscape ->
-                        // Clear the returned index when moving forward
-                        backStackEntry.savedStateHandle.remove<Int>("lastViewedIndex")
-                        if (isLandscape) {
-                            navController.navigate(Routes.landscapeViewer(folderUri.toString(), index))
-                        } else {
-                            navController.navigate(Routes.viewer(folderUri.toString(), index))
+                        if (navController.canNavigateFrom(entry)) {
+                            // Clear the returned index when moving forward
+                            entry.savedStateHandle.remove<Int>(LAST_VIEWED_INDEX)
+                            val route = if (isLandscape) {
+                                Routes.landscapeViewer(folderUri.toString(), index, fresh = false)
+                            } else {
+                                Routes.viewer(folderUri.toString(), index, fresh = false)
+                            }
+                            navController.navigateFrom(entry, route)
                         }
-                    }
+                    },
+                    onOpenOtherFolder = { uri -> openOtherFolder(entry, uri) }
                 )
             }
         }
 
-        composable(
-            route = Routes.VIEWER,
-            arguments = listOf(
-                navArgument("folderUri") { type = NavType.StringType },
-                navArgument("startIndex") { type = NavType.IntType }
-            )
-        ) { backStackEntry ->
-            val folderUri = backStackEntry.arguments?.getString("folderUri")?.let {
-                Uri.parse(it)
-            }
-            val startIndex = backStackEntry.arguments?.getInt("startIndex") ?: 0
+        composable(route = Routes.VIEWER, arguments = viewerArguments) { entry ->
+            val folderUri = entry.folderUriArg()
+            val startIndex = entry.arguments?.getInt("startIndex") ?: 0
+            val fresh = entry.arguments?.getBoolean("fresh") ?: false
             if (folderUri != null) {
-                ReelsViewerScreen(
+                screens.Viewer(
                     folderUri = folderUri,
                     startIndex = startIndex,
-                    onBack = { currentIndex -> 
-                        navController.previousBackStackEntry?.savedStateHandle?.set("lastViewedIndex", currentIndex)
-                        navController.popBackStack() 
-                    }
+                    fresh = fresh,
+                    onBack = { currentIndex -> viewerBack(entry, currentIndex) },
+                    onOpenOtherFolder = { uri -> openOtherFolder(entry, uri) }
                 )
             }
         }
 
-        composable(
-            route = Routes.LANDSCAPE_VIEWER,
-            arguments = listOf(
-                navArgument("folderUri") { type = NavType.StringType },
-                navArgument("startIndex") { type = NavType.IntType }
-            )
-        ) { backStackEntry ->
-            val folderUri = backStackEntry.arguments?.getString("folderUri")?.let {
-                Uri.parse(it)
-            }
-            val startIndex = backStackEntry.arguments?.getInt("startIndex") ?: 0
+        composable(route = Routes.LANDSCAPE_VIEWER, arguments = viewerArguments) { entry ->
+            val folderUri = entry.folderUriArg()
+            val startIndex = entry.arguments?.getInt("startIndex") ?: 0
+            val fresh = entry.arguments?.getBoolean("fresh") ?: false
             if (folderUri != null) {
-                LandscapeVideoViewerScreen(
+                screens.LandscapeViewer(
                     folderUri = folderUri,
                     startIndex = startIndex,
-                    onBack = { currentIndex -> 
-                        navController.previousBackStackEntry?.savedStateHandle?.set("lastViewedIndex", currentIndex)
-                        navController.popBackStack() 
-                    }
+                    fresh = fresh,
+                    onBack = { currentIndex -> viewerBack(entry, currentIndex) },
+                    onOpenOtherFolder = { uri -> openOtherFolder(entry, uri) }
                 )
             }
         }
 
-        composable(Routes.SETTINGS) {
-            SettingsScreen(
-                onBack = { navController.popBackStack() }
+        composable(Routes.SETTINGS) { entry ->
+            screens.Settings(
+                onBack = { navController.popFrom(entry) }
             )
         }
     }

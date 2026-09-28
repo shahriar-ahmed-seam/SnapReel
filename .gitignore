@@ -14,3 +14,11 @@ local.properties
 /build
 /app/build
 .DS_Store
+# Release signing: the key and its passwords never go into the repo (see README › Releasing)
+keystore.properties
+*.jks
+*.keystore
+*.p12
+.kiro
+.kotlin
+.vscode
